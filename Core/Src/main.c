@@ -27,12 +27,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "ADC_API.h"
-#include "ADC_FML.h"
-#include "AD9833.h"
-#include "DAC_FML.h"
+#include "SignalSeparator_API.h"
 #include "USART_FML.h"
-#include <stdio.h>
 
 /* USER CODE END Includes */
 
@@ -60,22 +56,11 @@
 void SystemClock_Config(void);
 static void MPU_Config(void);
 /* USER CODE BEGIN PFP */
-static void DAC_Demo_StartFixed(void);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static void DAC_Demo_StartFixed(void)
-{
-  if (DAC_Waveform_Apply(DAC_USER_WAVE_SINE, 1000.0f, 1.0f, DAC_WAVE_ZERO_AXIS_V) != HAL_OK)
-  {
-    Usart_Send_Computer(&huart1, "dac waveform fail\r\n");
-    Error_Handler();
-  }
-
-  Usart_Send_Computer(&huart1, "dac sine 1000Hz 1.00Vpp offset 1.65V ok\r\n");
-}
 
 /* USER CODE END 0 */
 
@@ -115,19 +100,8 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM1_Init();
   MX_USART1_UART_Init();
-  MX_DAC1_Init();
-  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   Usart_Send_Computer(&huart1, "boot\r\n");
-
-  AD9833_Init();
-  AD9833_SetFrequencyQuick(1000.0f, AD9833_OUT_SINUS);
-  AD9833_SetPhase(AD9833_REG_PHASE0, 0U);
-  AD9833_ClearReset();
-  
-  Usart_Send_Computer(&huart1, "ad9833 1khz sine ok\r\n");
-
-  DAC_Demo_StartFixed();
 
   if (HAL_ADCEx_Calibration_Start(&hadc1, ADC_CALIB_OFFSET_LINEARITY, ADC_SINGLE_ENDED) != HAL_OK)
   {
@@ -136,12 +110,7 @@ int main(void)
   }
   Usart_Send_Computer(&huart1, "adc cal ok\r\n");
 
-  if (MY_ADC1_Init() != HAL_OK)
-  {
-    Usart_Send_Computer(&huart1, "adc dma start fail\r\n");
-    Error_Handler();
-  }
-  Usart_Send_Computer(&huart1, "adc dma start ok\r\n");
+  SignalSeparator_Init();
 
   /* USER CODE END 2 */
 
@@ -152,7 +121,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    adc_proc();
+    SignalSeparator_Process();
 
   }
   /* USER CODE END 3 */

@@ -79,6 +79,10 @@ void Error_Handler(void);
 #define SCK_GPIO_Port GPIOH
 #define MRT_Pin GPIO_PIN_6
 #define MRT_GPIO_Port GPIOA
+#define AUTO_KEY_Pin GPIO_PIN_1
+#define AUTO_KEY_GPIO_Port GPIOB
+#define SWITCH_KEY_Pin GPIO_PIN_4
+#define SWITCH_KEY_GPIO_Port GPIOC
 
 /* USER CODE BEGIN Private defines */
 #define CS_Pin GPIO_PIN_1
@@ -103,6 +107,10 @@ void Error_Handler(void);
 #define SDI_GPIO_Port GPIOA
 #define SCK9_Pin GPIO_PIN_8
 #define SCK9_GPIO_Port GPIOA
+#define AUTO_KEY_Pin GPIO_PIN_1
+#define AUTO_KEY_GPIO_Port GPIOB
+#define SWITCH_KEY_Pin GPIO_PIN_4
+#define SWITCH_KEY_GPIO_Port GPIOC
 
 /* USER CODE END Private defines */
 

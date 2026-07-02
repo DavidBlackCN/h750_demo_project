@@ -2,6 +2,7 @@
 
 #include "ADC_FML.h"
 #include "adc.h"
+#include "tim.h"
 
 void adc1_deal(void)
 {
@@ -15,6 +16,7 @@ void adc1_deal(void)
         }
 
         HAL_ADC_Stop_DMA(&hadc1);
+        HAL_TIM_Base_Stop(&htim1);
         adc1_proc_flag = 1;
     }
 }

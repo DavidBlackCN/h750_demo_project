@@ -69,6 +69,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     API/ADC_API.c
     API/FFT_API.c
+    API/SignalSeparator_API.c
     BLL/ADC_BLL.c
     BLL/FFT_BLL.c
     BLL/USART_BLL.c
