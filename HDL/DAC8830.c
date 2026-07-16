@@ -13,6 +13,7 @@ static DAC8830_RangeMv gDac8830RangeMv = {
 void DAC8830_Init(void)
 {
     DAC8830_SPI_GPIO_Init();
+    DAC8830_SelectBipolar10V();
 }
 
 void DAC8830_SetOutputMode(DAC8830_OutputMode mode)

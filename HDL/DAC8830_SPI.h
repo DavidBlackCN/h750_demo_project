@@ -6,11 +6,11 @@
 #include "main.h"
 
 /*
- * Default wiring follows the original STM32F103 reference driver.
+ * Hardware SPI wiring uses SPI1 with the current DAC8830 pins.
  * CS1  -> PE2
  * CS2  -> PE0
- * SDI  -> PA7
- * SCLK -> PA5
+ * SDI  -> PA7 / SPI1_MOSI
+ * SCLK -> PA5 / SPI1_SCK
  */
 #define DAC8830_CS1_GPIO_Port    GPIOE
 #define DAC8830_CS1_Pin          GPIO_PIN_2
@@ -25,5 +25,7 @@ void DAC8830_SPI_GPIO_Init(void);
 void DAC8830_SPI_WriteChannel1(uint16_t data);
 void DAC8830_SPI_WriteChannel2(uint16_t data);
 void DAC8830_SPI_WriteBoth(uint16_t data);
+HAL_StatusTypeDef DAC8830_SPI_GetLastStatus(void);
+uint32_t DAC8830_SPI_GetErrorCount(void);
 
 #endif

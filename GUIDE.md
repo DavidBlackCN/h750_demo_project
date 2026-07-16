@@ -34,6 +34,8 @@ DAC8830_WriteBoth(32768U);     // 两路直接写 16 bit 码值
 
 默认输出模式是 `DAC8830_OUTPUT_BIPOLAR_10V`。如果模块跳线不是 ±10 V，请调用对应选择函数，或用 `DAC8830_SetRangeMv(min, max)` 设置自定义量程。
 
+当前 DAC8830 正弦 demo 使用 `HDL/DAC8830_DMA.*`，由 TIM4 触发 DMA：Update 拉低 `PE2/PE0`，CH1 把 16-bit 码值写入 `SPI1->TXDR`，CH2 拉高 `PE2/PE0` 锁存输出。250 点、10 kHz 对应 2.5 MS/s，SPI1 使用 16-bit 帧，SCK 目标约 60 Mbit/s；DMA 源表必须放在 `.dma_buffer` / RAM_D2。
+
 ## 片上 DAC 波形输出
 
 `FML/DAC_FML.*` 提供：
@@ -56,6 +58,60 @@ DAC8830_WriteBoth(32768U);     // 两路直接写 16 bit 码值
 6. USART1 输出原始数据、频谱数据和摘要。
 
 注意：当前 ADC DMA 是 one-shot 处理，`adc1_deal()` 会停止 DMA。若题目需要连续刷新，需要增加重启 DMA 或改成循环 DMA 的策略。
+
+## 方波频率测量
+
+当前主任务运行 `API/FREQ_API.*` 测频 demo，输入接到 `PA0 / TIM2_CH1`：
+
+```text
+信号源方波输出 -> PA0
+信号源地       -> 开发板 GND
+```
+
+输入必须为 0 到 3.3 V 数字电平。5 V 或更高电压应先经过电平转换、分压或限幅；输入配置为无上下拉，信号源停止驱动时如需确定电平，可外接约 10 kΩ 下拉。
+
+CubeMX 配置为：
+
+- TIM2 internal clock，Prescaler 为 0，Period 为 `0xFFFFFFFF`。
+- TIM2_CH1 使用 Input Capture direct mode、上升沿、DIV1、Filter 0。
+- PA0 使用 AF1_TIM2、No pull、Very High speed。
+- TIM2_CH1 DMA 使用 DMA1 Stream5、Peripheral-to-Memory、Word/Word、Memory Increment、Normal、High priority。
+- TIM2 和 DMA1 Stream5 中断抢占优先级均为 2。
+
+运行时模块会动态覆盖捕获预分频：低频使用 DIV1 捕获中断，高频使用 DIV8 捕获 DMA。启动时先进行约 10 ms 探测；高频 DMA 随测得频率调整长度，使测量窗口约为 200 ms，以减小输入边沿抖动造成的随机误差。最大缓冲区约 100 KB，位于 `.dma_buffer` / RAM_D2，读取前执行 DCache 失效。
+
+应用入口：
+
+```c
+if (FREQ_API_Init() != HAL_OK)
+{
+    Error_Handler();
+}
+
+while (1)
+{
+    FREQ_API_Process();
+}
+```
+
+结果可通过 `FREQ_API_GetResult()` 获取。低于 10 kHz 按 0.5 Hz 步进输出，10 kHz 到 1 MHz 按 10 Hz 步进输出。USART1 摘要示例：
+
+```text
+freq=1000.0Hz raw=999.983Hz mode=ic status=valid ticks=15000255 periods=200
+freq=1000000.0Hz raw=999999.867Hz mode=dma status=valid ticks=7500001 periods=100000
+```
+
+`raw` 是校准后但未量化的结果，`freq` 是按目标分辨率整理后的结果。针对本次 1 MHz 标准输入实测为 1002814 Hz 的情况，`FREQ_FML.h` 默认设置：
+
+```c
+#define FREQ_CALIBRATION_FACTOR (0.997193896f)
+```
+
+计算方式为 `1000000 / 1002814`，该系数同时作用于低频和高频结果。更换开发板或时钟条件后，可用新的标准频率按 `标准频率 / raw测量值` 重新计算。1 MHz 上限另有 1% 判定容差：校准后轻微超过 1 MHz 时，`freq` 钳位显示为 1000000 Hz，不再变成 0；超过 1.01 MHz 时状态为 `above_range`，但 `freq` 仍显示量程上限。
+
+当前 TIM2 时钟来自内部 HSI 派生的 75 MHz，单点校准可以减小系统比例误差，但温漂、信号源误差和输入边沿抖动仍会影响绝对准确度；需要更高精度时应改用高精度外部时钟源。
+
+串口摘要固定每 1 s 输出一次，即使频率和状态没有变化也会继续输出；无输入时持续输出 `status=no_signal`。高频 DMA 模式会关闭 TIM2 和 DMA1 Stream5 NVIC，由主循环轮询 DMA NDTR 判断完成，避免持续扫频时出现 DMA 完成/中止/重启的中断竞态；切回低频输入捕获时自动恢复 TIM2 NVIC。
 
 ## 串口调试
 
