@@ -18,14 +18,17 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
+#include "dac.h"
 #include "dma.h"
+#include "spi.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "FREQ_API.h"
+#include "ADC_API.h"
 #include "USART_FML.h"
 
 /* USER CODE END Includes */
@@ -92,14 +95,15 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
+  MX_ADC1_Init();
+  MX_TIM1_Init();
   MX_USART1_UART_Init();
-  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   Usart_Send_Computer(&huart1, "boot\r\n");
 
-  if (FREQ_API_Init() != HAL_OK)
+  if (ADC_API_Init() != HAL_OK)
   {
-    Usart_Send_Computer(&huart1, "freq demo init fail\r\n");
+    Usart_Send_Computer(&huart1, "adc fft thd demo init fail\r\n");
     Error_Handler();
   }
   /* USER CODE END 2 */
@@ -111,7 +115,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    FREQ_API_Process();
+    ADC_API_Process();
 
   }
   /* USER CODE END 3 */

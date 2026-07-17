@@ -61,9 +61,11 @@ void calculate_fft_fml(float *input_data, float *fft_complex_buf, float *fft_mag
 
     for (uint32_t i = 0; i < (uint32_t)fft_len / 2U; i++)
     {
-        float scale = (i == 0U) ? (1.0f / (float)fft_len) : (2.0f / (float)fft_len);
-        fft_mag_buf[i] = fft_mag_buf[i] * scale * 1.5f;
-        fft_out_buf[i] = sqrtf(fft_mag_buf[i]);
+        const float coherent_gain = 0.5f;
+        float scale = (i == 0U) ? (1.0f / ((float)fft_len * coherent_gain))
+                                : (2.0f / ((float)fft_len * coherent_gain));
+        fft_mag_buf[i] *= scale;
+        fft_out_buf[i] = fft_mag_buf[i];
     }
 }
 
@@ -99,7 +101,7 @@ void calculate_fft_fml_no_window(float *input_data, float *fft_complex_buf, floa
     {
         float scale = (i == 0U) ? (1.0f / (float)fft_len) : (2.0f / (float)fft_len);
         fft_mag_buf[i] = fft_mag_buf[i] * scale;
-        fft_out_buf[i] = sqrtf(fft_mag_buf[i]);
+        fft_out_buf[i] = fft_mag_buf[i];
     }
 }
 

@@ -50,18 +50,61 @@ DAC8830_WriteBoth(32768U);     // 两路直接写 16 bit 码值
 
 当前采样处理链路：
 
-1. `MY_ADC1_Init()` 启动 ADC DMA 和 TIM1。
-2. ADC DMA 回调置位 `adc1_deal_flag`。
-3. `adc_proc()` 调用 `adc1_deal()` 把 DMA 原始值转成 0 到 3.3 V 浮点数组。
-4. 去均值后执行 1024 点 FFT。
-5. `FFT_BLL_UpdateResult()` 计算主峰、次峰、频率、Vpp、相位。
-6. USART1 输出原始数据、频谱数据和摘要。
+1. `ADC_API_Init()` 配置 TIM1 Update TRGO、执行 ADC 单端 offset 校准并启动 DMA。
+2. TIM1 以约 31030.2027 SPS 触发 ADC1，DMA one-shot 采集 1024 点到 `.dma_buffer` / RAM_D2；固定 1 kHz 输入时一帧约包含 33.000107 个周期，接近相干采样。
+3. DMA 完成后停止 TIM1 和 ADC DMA；仅在 DCache 实际开启时执行缓存失效，再把 16 bit 码值换算为 0 到 3.3 V。当前工程未启用 DCache，RAM_D2 缓冲区不执行缓存维护。
+4. 数据去均值、乘 Hann 窗并执行 1024 点 FFT；频谱幅值按 Hann 相干增益修正，不再对复数模值错误开方。
+5. 先在 FFT 主峰左右半个 bin 内对 Hann 加窗 DFT 做连续频率细化，再直接在细化后的 `f0`、`2f0`～`5f0` 处估计幅值，避免非整数周期采样时固定三点频带积分产生不一致的主瓣截断误差；严格按题目公式 `sqrt(U2^2 + U3^2 + U4^2 + U5^2) / U1` 计算 THD。
+6. 依据 THD、偶次谐波以及 3/5 次谐波比例识别 `sine`、`square`、`triangle`；条件不足时输出 `unknown`。
+7. USART1 先输出 1024 点原始波形，再输出 512 点半边频谱，最后输出结果；上电只采集并打印一帧，完成后不自动重启。
 
-注意：当前 ADC DMA 是 one-shot 处理，`adc1_deal()` 会停止 DMA。若题目需要连续刷新，需要增加重启 DMA 或改成循环 DMA 的策略。
+CubeMX/硬件配置：
+
+- `PA1_C / ADC1_INP1`，16 bit、single-ended、采样时间 8.5 cycles。
+- ADC 外部触发为 `TIM1 TRGO` rising，DMA1 Stream0 为 Peripheral-to-Memory、Word/Word、Memory Increment、Normal、High priority。
+- TIM1 internal clock，Prescaler=0、运行时 Period=2416、Master Output Trigger=Update Event；当前 APB2=37.5 MHz、TIM1=75 MHz，因此实际采样率为 `75 MHz / 2417 = 31030.2027 Hz`。1 kHz 基波约位于第 33 个 bin，五次谐波约位于第 165 个 bin，低于 15515.10 Hz Nyquist 上限。
+- 当前 `.ioc` 已保存 `TIM_TRGO_UPDATE`，但 CubeMX 生成值可能与运行值不同；`ADC_FML` 启动时会再次设置 Update TRGO，并按目标采样率自动设置 TIM1 ARR。若希望 CubeMX 配置也保持一致，可手动将 TIM1 Period 改为 2416。
+
+输入必须限制在 0～3.3 V 并与开发板共地。双极性信号需要先增加约 1.65 V 偏置，推荐测试条件为约 2 Vpp、1.65 V offset；负电压或 5 V 信号不能直接接入 ADC。
+
+串口帧格式：
+
+```text
+frame begin fs=31030.20 n=1024
+raw begin
+0,1.650123
+...
+raw end
+spectrum begin
+0,0.000123
+1,0.001234
+...
+spectrum end
+result status=valid freq=1000.00Hz thd=11.809% wave=triangle h2=0.0000 h3=0.1111 h5=0.0400 fs=31030.20Hz
+frame end
+```
+
+原始波形每行为 `采样点序号,电压V`，半边频谱每行为 `bin序号,幅值V`；不逐 bin 打印频率。输入信号频率只在最后的 `result freq=...Hz` 中输出。
+
+当前配置专用于固定 1 kHz 输入，FFT bin 间隔约为 30.303 Hz，1024 点窗口约为 32.9999 ms。由于 TIM1 只能使用整数分频，在不改变 75 MHz 定时器时钟的情况下不能做到绝对相干；当前 2417 分频已将单帧周期误差压到约 0.000107 周期。若输入频率不再固定为 1 kHz，应重新选择采样率。无信号时输出 `status=no_signal`；频率过低或可用谐波不足时输出 `status=limited`、`thd=invalid`。
+
+应用入口：
+
+```c
+if (ADC_API_Init() != HAL_OK)
+{
+    Error_Handler();
+}
+
+while (1)
+{
+    ADC_API_Process();
+}
+```
 
 ## 方波频率测量
 
-当前主任务运行 `API/FREQ_API.*` 测频 demo，输入接到 `PA0 / TIM2_CH1`：
+工程仍保留 `API/FREQ_API.*` 测频 demo（当前主任务未启动），启用后输入接到 `PA0 / TIM2_CH1`：
 
 ```text
 信号源方波输出 -> PA0
