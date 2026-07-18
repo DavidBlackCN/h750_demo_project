@@ -5,6 +5,34 @@ static u8 Profile_All[8];
 static u8 CFR3[] = {0x25U, 0x0FU, 0x41U, 0x50U};
 static u8 Assist_DAC[] = {0x00U, 0x00U, 0x00U, 0x7FU};
 
+#define AD9910_TRIANGLE_SAMPLES             50U
+#define AD9910_TRIANGLE_RAM_RATE             5U
+#define AD9910_TRIANGLE_POSITIVE_PHASE       0x4000U
+#define AD9910_TRIANGLE_NEGATIVE_PHASE       0xC000U
+#define AD9910_AMPLITUDE_CODE_MAX            16383U
+
+static void AD9910_IO_Update(void)
+{
+    AD9910_IUP_Clr;
+    Delay_ns(10U);
+    AD9910_IUP_Set;
+    Delay_ns(10U);
+    AD9910_IUP_Clr;
+}
+
+static void AD9910_WriteRegister(u8 address, const u8 *data, u8 length)
+{
+    u8 i;
+
+    AD9910_CSN_Clr;
+    Write_8bit(address);
+    for (i = 0U; i < length; i++)
+    {
+        Write_8bit(data[i]);
+    }
+    AD9910_CSN_Set;
+}
+
 void Delay_ns(u8 t)
 {
     do
@@ -257,6 +285,66 @@ void AD9910_Singal_Profile_Set(u8 addr, u32 Freq, u16 Amp, u16 Pha)
     AD9910_IUP_Set;
     Delay_ns(10U);
     AD9910_IUP_Clr;
+}
+
+void AD9910_TriangleWave_Init(u16 amplitude_code)
+{
+    u8 ram_profile[8] =
+    {
+        0x00U,
+        0x00U,
+        AD9910_TRIANGLE_RAM_RATE,
+        0x0CU,
+        0x40U,
+        0x00U,
+        0x00U,
+        0x04U
+    };
+    u8 ram_cfr1[] = {0xE0U, 0x40U, 0x00U, 0x00U};
+    u8 sample;
+
+    if (amplitude_code > AD9910_AMPLITUDE_CODE_MAX)
+    {
+        amplitude_code = AD9910_AMPLITUDE_CODE_MAX;
+    }
+
+    /*
+     * Profile 0 uses RAM addresses 0 through 49. With a 1 GHz SYSCLK,
+     * an address step rate of 5 gives 50 MHz playback and a 1 MHz waveform.
+     */
+    AD9910_WriteRegister(0x0EU, ram_profile, sizeof(ram_profile));
+    AD9910_IO_Update();
+
+    AD9910_CSN_Clr;
+    Write_8bit(0x16U);
+    for (sample = 0U; sample < AD9910_TRIANGLE_SAMPLES; sample++)
+    {
+        int32_t value;
+        u16 magnitude;
+        u16 phase;
+        u32 ram_word;
+
+        if (sample <= 24U)
+        {
+            value = -((int32_t)amplitude_code) +
+                    ((2 * (int32_t)amplitude_code * (int32_t)sample + 12) / 24);
+        }
+        else
+        {
+            value = (int32_t)amplitude_code -
+                    ((2 * (int32_t)amplitude_code * ((int32_t)sample - 24) + 12) / 25);
+        }
+
+        magnitude = (u16)((value < 0) ? -value : value);
+        phase = (value < 0) ? AD9910_TRIANGLE_NEGATIVE_PHASE : AD9910_TRIANGLE_POSITIVE_PHASE;
+        ram_word = ((u32)phase << 16) | ((u32)magnitude << 2);
+        Write_32bit(ram_word);
+    }
+    AD9910_CSN_Set;
+
+    /* CFR1: RAM enabled, polar playback (phase + 14-bit amplitude), sine output. */
+    AD9910_WriteRegister(0x00U, ram_cfr1, sizeof(ram_cfr1));
+    AD9910_IO_Update();
 }
 
 void Set_Profile(u8 num)

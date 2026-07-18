@@ -21,9 +21,9 @@ void generate_hanning_window(void)
     }
 }
 
-static void run_cfft_1024(float *fft_complex_buf)
+static void run_cfft_4096(float *fft_complex_buf)
 {
-    arm_cfft_f32(&arm_cfft_sR_f32_len1024, fft_complex_buf, 0, 1);
+    arm_cfft_f32(&arm_cfft_sR_f32_len4096, fft_complex_buf, 0, 1);
 }
 
 void calculate_fft(float *input_data, uint32_t data_len)
@@ -56,7 +56,7 @@ void calculate_fft_fml(float *input_data, float *fft_complex_buf, float *fft_mag
         fft_complex_buf[2U * i + 1U] = 0.0f;
     }
 
-    run_cfft_1024(fft_complex_buf);
+    run_cfft_4096(fft_complex_buf);
     arm_cmplx_mag_f32(fft_complex_buf, fft_mag_buf, (uint32_t)fft_len / 2U);
 
     for (uint32_t i = 0; i < (uint32_t)fft_len / 2U; i++)
@@ -92,7 +92,7 @@ void calculate_fft_fml_no_window(float *input_data, float *fft_complex_buf, floa
         fft_complex_buf[2U * i + 1U] = 0.0f;
     }
 
-    run_cfft_1024(fft_complex_buf);
+    run_cfft_4096(fft_complex_buf);
     arm_cmplx_mag_f32(fft_complex_buf, fft_mag_buf, (uint32_t)fft_len / 2U);
 
     for (uint32_t i = 0; i < (uint32_t)fft_len / 2U; i++)

@@ -41,6 +41,7 @@ void AD9910_Singal_Profile_Init(void);
 void AD9910_Parallel_Profile_Init(void);
 void AD9910_Parallel_Profile_Set(void);
 void AD9910_Singal_Profile_Set(u8 addr, u32 Freq, u16 Amp, u16 Pha);
+void AD9910_TriangleWave_Init(u16 amplitude_code);
 void Set_Profile(u8 num);
 
 #endif

@@ -70,8 +70,10 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     API/ADC_API.c
     API/FFT_API.c
     API/FREQ_API.c
+    API/PHASE_API.c
     BLL/ADC_BLL.c
     BLL/FFT_BLL.c
+    BLL/PHASE_BLL.c
     BLL/USART_BLL.c
     HDL/AD9833.c
     HDL/AD9910.c

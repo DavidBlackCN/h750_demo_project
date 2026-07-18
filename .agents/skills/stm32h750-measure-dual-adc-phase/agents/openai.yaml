@@ -1,0 +1,4 @@
+interface:
+  display_name: "STM32H750 双ADC相位测量"
+  short_description: "开发、校准与诊断STM32H750双ADC相位差测量"
+  default_prompt: "使用 $stm32h750-measure-dual-adc-phase 开发、校准或排查本项目的双ADC相位差测量。"

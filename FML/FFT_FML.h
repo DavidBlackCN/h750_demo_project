@@ -4,7 +4,7 @@
 #include "main.h"
 #include "arm_math.h"
 
-#define FFT_LENGTH 1024U
+#define FFT_LENGTH 4096U
 #define FFT_SAMPLE_RATE 1000000.0f
 #define DC_INDEX 1U
 
