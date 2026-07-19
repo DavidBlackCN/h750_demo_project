@@ -5,7 +5,12 @@
 ## 已验证
 
 - `cmake --build --preset Debug` 编译、链接通过。
-- 当前 AD9910 demo 构建后资源占用：
+- 当前串口屏 demo 构建后资源占用：
+  - FLASH：41972 B / 128 KB（32.02%）。
+  - DTCMRAM：3176 B / 128 KB（2.42%）。
+  - RAM_D2：0 B / 288 KB。
+- 淘晶驰串口屏 demo 已编译、链接通过，尚未下载 TFT 和固件进行实物联调。
+- 上一次 AD9910 demo 构建后资源占用（串口屏 demo 构建值见后续验证）：
   - FLASH：42460 B / 128 KB（32.39%）。
   - DTCMRAM：3016 B / 128 KB（2.30%）。
   - RAM_D2：0 B / 288 KB。
@@ -24,10 +29,10 @@
 
 ## 当前主程序行为
 
-- 当前主任务为 AD9910 波形 demo，仅启动 GPIO 和 USART1，其他 demo 代码保留但不调用。
+- 当前主任务为淘晶驰 `TJC1060X570_011C_I` 串口屏 demo，仅启动 GPIO、USART1 和 USART3，其他 demo 代码保留但不调用。
 - CubeMX 本次生成后 CPU 主频为 480 MHz、AXI/AHB 为 240 MHz，`main.c` 显式开启 I/D Cache。
-- 上电后通过 `AD9910_API_StartWaveform()` 启动 100 kHz、500 mVpp 的 RAM 三角波；参数集中在 `Core/Src/main.c` 的三个 `AD9910_DEMO_*` 宏中。
-- USART1 启动成功输出 `ad9910 waveform started`，参数越界输出 `ad9910 waveform parameter invalid` 后进入错误处理。
+- USART1 使用 PB6/PB7、921600 8N1，保留给板载 USB 转串口及 `printf` 调试；USART3 使用 PB10/PB11、115200 8N1，专用于 TTL 串口屏。屏幕上电等待 800 ms 后进入 `main` 页面并开始每秒刷新计数。
+- `b0` 通过 `5A A5 01 FF FF FF` 回传暂停/继续命令，`b1` 通过 `5A A5 02 FF FF FF` 回传清零命令。
 
 ## 已实现模块
 
@@ -49,13 +54,17 @@
 - `API/PHASE_API.*`：当前双ADC相位差demo入口、摘要输出和逐帧重启。
 - `API/AD9910_API.*`：按波形类型、频率和 mVpp 参数启动 AD9910 输出。
 - `API/ADS8688_API.*`：CH1 demo 初始化、连续采样和 VOFA+ FireWater 输出。
+- `HDL/TJC_HMI.*`：淘晶驰字符串指令发送、文本/数值赋值、标准触摸帧和 demo 自定义帧解析。
+- `API/TJC_HMI_API.*`：当前串口屏 demo 的页面初始化、周期刷新和按钮业务入口。
 
 ## 当前引脚定义
 
 | 功能 | 引脚 | 说明 |
 | --- | --- | --- |
-| USART1_TX | PB6 | 串口调试输出，921600 baud |
-| USART1_RX | PB7 | 串口调试输入，921600 baud |
+| USART1_TX | PB6 | USB 调试串口 TX，921600 baud |
+| USART1_RX | PB7 | USB 调试串口 RX，921600 baud |
+| USART3_TX | PB10 | 淘晶驰串口屏 RX，115200 baud |
+| USART3_RX | PB11 | 淘晶驰串口屏 TX，115200 baud |
 | ADS8688_CS | PB12 | ADS8688 片选，软件控制，低有效 |
 | ADS8688_RST_PD | PC4 | ADS8688 复位/低功耗控制，demo 保持高电平 |
 | ADS8688_SCK | PB13 / SPI2_SCK | 硬件 SPI 时钟，17 MHz |
@@ -86,7 +95,7 @@
 ## 待确认
 
 - ADS8688 demo 目前只是“已编译”，需要用 CH1 实际电压完成通信、零点、正负满量程和 VOFA+ 波形验收。
-- `.ioc` 当前已是 480 MHz 时钟配置，但未保留旧的 ADC2 配置；为保证旧相位模块继续构建，`Core/Src/adc.c` 中已恢复 ADC2 源码，因此该部分与 `.ioc` 存在不一致。下次 CubeMX 重新生成前先备份或同步这些配置。
+- `.ioc` 已同步 USART3（PB10/PB11）、USART1/USART3 波特率、内部 HSI 派生的 480 MHz 时钟入口、ADC2_INP7 和 TIM1 Update TRGO。PA7 在 `.ioc` 中以已实物验收的 ADC2 输入为基准；DAC8830 的 SPI1_MOSI 仍是切换任务时使用的源码级复用，CubeMX 无法同时表达二者。
 - VOFA+ FireWater 依赖换行分帧，不应在同一 UART 中插入其他日志，否则会增加无关通道或造成解析干扰。
 
 - 方波测频尚未用实物信号源覆盖验证 1 Hz、频段切换点、10 kHz 分辨率切换点和 1 MHz 上限；应重点观察串口 `raw`、`mode`、`ticks` 和 `periods`。
@@ -96,7 +105,7 @@
 - TIM1 TRGO已改为Update，理论采样率为1 MHz；当前系统使用内部HSI派生时钟，实测前仍需用已知信号复核真实采样率。
 - 相位校准表当前四个频点均为`0°`占位值。达到全频段0.5°指标前，必须使用同源一分二输入，在1 kHz、10 kHz、50 kHz、100 kHz测出通道固定相差并写入`BLL/PHASE_BLL.c`。
 - 相干采样以第一帧频率估计为依据；若输入在两帧之间发生跳频或漂移，第二帧不再严格相干，需依靠`closure`、拟合质量和重复测量识别。
-- 480 MHz时钟和ADC2配置当前以工程源码为准；若使用CubeMX重新生成代码，应先同步检查`.ioc`中的时钟树、ADC2和TIM1配置，避免覆盖本次手工配置。
+- `.ioc` 已按双 ADC 主链路补齐 ADC2 和 TIM1 配置，但 PA7 的 ADC2/SPI1_MOSI 互斥仍需在切换相位与 DAC8830 任务时人工确认；不要在同一主任务中同时初始化二者。
 - 双ADC链路和算法尚未经过实物信号源验证；应覆盖1 kHz、100 kHz、接近±180°、不同幅度及低信噪比场景。
 - 2026-07-17首次上板时仅看到启动日志、没有首帧结果；已针对ADC从机校准顺序进行修正。当前正常启动不再打印就绪信息；若采集超时，串口会输出`phase capture timeout ...`寄存器快照供继续定位。
 - 2026-07-17新日志确认DMA每帧数据已完成，但当前中断配置下HAL DMA完成回调未进入；双ADC单帧采集现明确改为轮询`NDTR`完成，取消20 ms等待和`DMA callback missed`刷屏，仍保留100 ms真实超时诊断。后续已确认ADC2实际接在PA7并修正通道配置。

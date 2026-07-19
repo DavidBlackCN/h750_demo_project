@@ -13,7 +13,7 @@
 - CMSIS-DSP FFT：4096 点 FFT，支持汉宁窗、主峰/次峰、频率、幅值、Vpp、相位估计。
 - 双正弦相位差：覆盖 1 kHz 到 100 kHz，FFT 粗定位后使用公共频率正弦拟合，并预留多频点相位校准表。
 - 方波频率测量：PA0 / TIM2_CH1 输入捕获，覆盖 1 Hz 到 1 MHz；低频使用捕获中断，高频使用 `/8` 捕获 DMA，输出分辨率分别为 0.5 Hz 和 10 Hz。
-- USART1 调试输出：921600 8N1，主要用于输出启动状态、原始采样和频谱数据。
+- 淘晶驰串口屏：USART3（PB10/PB11）115200 8N1，支持文本/数值刷新和触摸命令回传；USART1 保留为 USB 调试串口。
 
 ## 项目结构
 
@@ -27,7 +27,7 @@
 
 ## 默认启动流程
 
-`Core/Src/main.c` 当前运行 AD9910 波形 demo。上电后通过软件串行接口启动 100 kHz、500 mVpp 的 RAM 三角波，并通过 USART1 输出启动状态。其他测量、采集和信号产生模块仍保留，但主程序不启动。
+`Core/Src/main.c` 当前运行淘晶驰串口屏 demo。上电后进入 `main` 页面，每秒更新计数值；屏幕上的按钮可暂停/继续计数或将计数清零。其他测量、采集和信号产生模块仍保留，但主程序不启动。
 
 ## 构建
 
@@ -43,7 +43,8 @@ cmake --build --preset Debug
 ## 关键配置
 
 - MCU：STM32H750XBHx，工程名 `adc_fft_demo`。
-- USART1：PB6 TX、PB7 RX，921600 baud。
+- USART1：PB6 TX、PB7 RX，921600 baud，保留为 USB 调试串口和 `printf` 重定向端口。
+- USART3：PB10 TX、PB11 RX，115200 baud，当前专用于淘晶驰串口屏。
 - 方波测频：PA0 / TIM2_CH1，上升沿输入捕获；TIM2 时钟当前为 75 MHz，DMA 使用 DMA1 Stream5。
 - ADC1：PA1_C / ADC1_INP1，双 ADC 主机通道。
 - ADC2：PA7 / ADC2_INP7，双 ADC 从机通道；与DAC8830的SPI1_MOSI复用，不能同时运行。

@@ -73,6 +73,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     API/FFT_API.c
     API/FREQ_API.c
     API/PHASE_API.c
+    API/TJC_HMI_API.c
     BLL/ADC_BLL.c
     BLL/ADS8688_BLL.c
     BLL/FFT_BLL.c
@@ -85,6 +86,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     HDL/DAC8830_DMA.c
     HDL/DAC8830_SPI.c
     HDL/MySPI.c
+    HDL/TJC_HMI.c
     FML/ADC_FML.c
     FML/DAC_FML.c
     FML/FFT_FML.c

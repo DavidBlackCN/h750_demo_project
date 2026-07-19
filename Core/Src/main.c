@@ -28,8 +28,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "AD9910_API.h"
-#include "USART_FML.h"
+#include "TJC_HMI_API.h"
 
 /* USER CODE END Includes */
 
@@ -39,13 +38,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define AD9910_DEMO_FREQUENCY_HZ       100000UL
-#define AD9910_DEMO_AMPLITUDE_MVPP     500U
-
-// 正弦波： AD9910_API_WAVE_SINE
-// 方波： AD9910_API_WAVE_SQUARE
-// 三角波： AD9910_API_WAVE_TRIANGLE
-#define AD9910_DEMO_WAVEFORM           AD9910_API_WAVE_TRIANGLE
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -104,16 +96,12 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART1_UART_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-  if (AD9910_API_StartWaveform(AD9910_DEMO_WAVEFORM,
-                              AD9910_DEMO_FREQUENCY_HZ,
-                              AD9910_DEMO_AMPLITUDE_MVPP) != HAL_OK)
+  if (TJC_HMI_API_Init(&huart3) != HAL_OK)
   {
-    (void)Usart_Send_Computer(&huart1,
-                              "ad9910 waveform parameter invalid\r\n");
     Error_Handler();
   }
-  (void)Usart_Send_Computer(&huart1, "ad9910 waveform started\r\n");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -123,6 +111,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    TJC_HMI_API_Process();
   }
   /* USER CODE END 3 */
 }
