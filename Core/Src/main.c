@@ -19,14 +19,16 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "dac.h"
 #include "dma.h"
+#include "spi.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "PHASE_API.h"
+#include "AD9910_API.h"
 #include "USART_FML.h"
 
 /* USER CODE END Includes */
@@ -37,6 +39,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define AD9910_DEMO_FREQUENCY_HZ       100000UL
+#define AD9910_DEMO_AMPLITUDE_MVPP     500U
+
+// 正弦波： AD9910_API_WAVE_SINE
+// 方波： AD9910_API_WAVE_SQUARE
+// 三角波： AD9910_API_WAVE_TRIANGLE
+#define AD9910_DEMO_WAVEFORM           AD9910_API_WAVE_TRIANGLE
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -73,8 +82,6 @@ int main(void)
 
   /* MPU Configuration--------------------------------------------------------*/
   MPU_Config();
-  SCB_EnableICache();
-  SCB_EnableDCache();
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -82,6 +89,8 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+  SCB_EnableICache();
+  SCB_EnableDCache();
 
   /* USER CODE END Init */
 
@@ -94,17 +103,17 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_ADC1_Init();
-  MX_ADC2_Init();
-  MX_TIM1_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  if (Phase_API_Init() != HAL_OK)
+  if (AD9910_API_StartWaveform(AD9910_DEMO_WAVEFORM,
+                              AD9910_DEMO_FREQUENCY_HZ,
+                              AD9910_DEMO_AMPLITUDE_MVPP) != HAL_OK)
   {
-    Usart_Send_Computer(&huart1, "phase adc init failed\r\n");
+    (void)Usart_Send_Computer(&huart1,
+                              "ad9910 waveform parameter invalid\r\n");
     Error_Handler();
   }
+  (void)Usart_Send_Computer(&huart1, "ad9910 waveform started\r\n");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -114,8 +123,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    Phase_API_Process();
-
   }
   /* USER CODE END 3 */
 }
@@ -135,11 +142,7 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-  __HAL_RCC_SYSCFG_CLK_ENABLE();
-  if (HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE0) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
 
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 
@@ -154,7 +157,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLM = 4;
   RCC_OscInitStruct.PLL.PLLN = 60;
   RCC_OscInitStruct.PLL.PLLP = 2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
+  RCC_OscInitStruct.PLL.PLLQ = 5;
   RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;

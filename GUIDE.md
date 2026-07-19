@@ -99,7 +99,7 @@ freq=10000.00Hz phase=45.123deg
 
 ## 方波频率测量
 
-当前主任务运行 `API/FREQ_API.*` 测频 demo，输入接到 `PA0 / TIM2_CH1`：
+`API/FREQ_API.*` 测频 demo 代码仍保留，但当前主任务不启动。恢复该 demo 后，输入接到 `PA0 / TIM2_CH1`：
 
 ```text
 信号源方波输出 -> PA0
@@ -172,13 +172,55 @@ $ENV{USERPROFILE}/STM32Cube/Repository/STM32Cube_FW_H7_V1.12.1
 
 ## AD9910 单 Profile demo
 
-AD9910 demo代码仍保留，但当前主任务不启动AD9910。需要恢复该demo时，可按以下步骤操作：
+当前主任务为 AD9910 波形 demo。只需在 `Core/Src/main.c` 修改三个宏：
+
+```c
+#define AD9910_DEMO_FREQUENCY_HZ       100000UL
+#define AD9910_DEMO_AMPLITUDE_MVPP     500U
+#define AD9910_DEMO_WAVEFORM           AD9910_API_WAVE_TRIANGLE
+```
+
+波形可选 `AD9910_API_WAVE_SINE`、`AD9910_API_WAVE_TRIANGLE` 或
+`AD9910_API_WAVE_SQUARE`，无需手工换算 AD9910 幅度码。测试步骤如下：
 
 1. 断电接线，开发板与 AD9910 模块必须共地；连接 `MRT=PA6`、`CSN=PD4`、`SCK=PA8`、`SDI=PA12`、`IUP=PD5`、`PF0=PG11`、`PF1=PG9`、`PF2=PG7`。
 2. 按 AD9910 模块要求提供其电源和系统时钟，并将示波器或频谱仪接到模块已配置的模拟输出端；仪器地与系统地相连。勿将 5 V 逻辑电平直接接入 H750 GPIO。
 3. 执行 `cmake --build --preset Debug`，烧录生成的固件，然后复位开发板。
-4. 打开 USART1（PB6/PB7，921600、8N1），应看到 `boot` 和 `ad9910 triangle: 1MHz amp=1638 nominal=200mVpp`。
-5. 示波器设为 1 MΩ 高阻输入、DC 耦合，确认约 1 MHz 的 50 阶近似三角波。若模块满量程为约 2 Vpp，`1638` 约为 200 mVpp；实测值不符时按 `新码值 = 1638 × 目标Vpp / 实测Vpp` 换算 `AD9910_TriangleWave_Init()` 的参数，并限制在 0 到 16383。
+4. 打开 USART1（PB6/PB7，921600、8N1），启动成功后应看到 `ad9910 waveform started`；参数越界则显示 `ad9910 waveform parameter invalid`。
+5. AD9910 输出端直接接示波器，不经过硬件放大；示波器设为 1 MΩ 高阻输入、DC 耦合，确认频率、波形和 Vpp。三种波形幅度均允许 0～724 mVpp。更换模块或输出网络后需要重新标定。
 6. 若无输出，先检查模块电源/时钟、共地、输出端跳线及上述 8 根控制线，再用逻辑分析仪确认 `CSN/SCK/SDI/IUP` 在复位后有写寄存器时序。
 
-三角波由 `AD9910_TriangleWave_Init(1638U)` 配置。函数以 50 点极性 RAM 数据生成三角波，系统时钟为 1 GHz 时，RAM 地址步进率 5 对应 50 MHz 回放率，故波形频率为 1 MHz。频率和幅度均依赖模块的实际系统时钟及模拟输出网络，烧录后必须以示波器实测为准。
+正弦波使用单 Profile DDS，支持 1 Hz～400 MHz；三角波和方波使用 RAM 连续回放，支持约 77 Hz～5 MHz。程序会在 50～1024 点之间搜索频率误差最小的组合，同误差时优先选择更多点；100 kHz 使用 625 点、地址步进率 4，频率保持精确的同时明显减小阶梯。频率和幅度均依赖模块的实际系统时钟及模拟输出网络，烧录后必须以示波器实测为准。
+
+非正弦路径使用 RAM polar 数据和正弦 DDS 映射，以 90°/270°相位表示正负样本。因此 CFR1[16] 必须保持为 1；若误选余弦输出，90°相位会落在零点，表现为无输出或幅度异常。
+
+## ADS8688 CH1 + VOFA+ demo
+
+ADS8688 demo 代码仍保留，但当前主任务不启动。恢复该 demo 后，程序使用 ADS8688 的内部通道 0 采集模块上标注的 CH1，默认量程为 ±10.24 V。硬件接线如下：
+
+| ADS8688 模块 | STM32H750 | 说明 |
+| --- | --- | --- |
+| `CS` / `nCS` | `PB12` | 片选，低有效 |
+| `RST/PD` | `PC4` | 复位/低功耗，demo 保持高电平 |
+| `SCLK` | `PB13 / SPI2_SCK` | SPI 时钟 |
+| `SDO` | `PB14 / SPI2_MISO` | ADC 数据输出 |
+| `SDI` | `PB15 / SPI2_MOSI` | MCU 命令输出 |
+| `DAISY_IN` | `GND` | 单片使用时固定拉低，不要悬空 |
+| `CH1` | 待测模拟信号 | 默认允许 -10.24 V～+10.24 V |
+| 模块 `GND` | 开发板 GND/信号源 GND | 三者必须共地 |
+
+SPI2 配置为 Master、Full Duplex、8 bit、MSB first、CPOL low、CPHA 2-edge、软件 NSS、NSS pulse disabled。SPI123 使用 136 MHz PLL3P，SPI2 分频 `/8`，SCK 为 17 MHz。初始化和寄存器访问使用 HAL SPI，1000 点高速采样使用专用 SPI2 FIFO 轮询路径，以避免每点进入完整 HAL 调用。
+
+VOFA+ 配置：
+
+1. 选择 USART1 对应串口，设为 921600 baud、8N1、无流控。
+2. 协议引擎选择 `FireWater`，程序会自动生成名为 `voltage` 的通道，单位为 V。
+3. 每帧格式为 `voltage:1.234567\r\n`。不要在同一串口中混入其他调试日志。
+
+测试流程：
+
+1. 断电完成上表接线，核对 ADS8688 模块电源和参考电压要求，先不加输入信号。
+2. 烧录 Debug 固件并复位，打开 VOFA+ 后观察 CH1 波形；CH1 接 0 V 时应接近 0 V，对应原始码约 `32768`。
+3. 依次输入已知的直流正、负电压（例如 +1.000 V 和 -1.000 V），确认 VOFA+ 数值极性和比例正确。
+4. 再输入 10 kHz、1 Vpp 正弦波，检查幅度和直流偏置。程序以 ADS8688 上限 500 kSPS 固定节拍采集1000点整帧，每帧采集完成后通过 FireWater 发送全部1000点，然后采集下一帧。10 kHz 每周期理论上约有50个点；VOFA+横轴是采样点序号，帧间会有串口发送空隙。
+5. 若 VOFA+ 无数据，先用逻辑分析仪检查 `PB12/PB13/PB15`是否有 CS、SCK 和 SDI 时序，再检查 `PB14` 是否返回数据。初始化会读回 CH1 量程寄存，读回不匹配时主程序进入 `Error_Handler()` 且不发送 FireWater 帧。

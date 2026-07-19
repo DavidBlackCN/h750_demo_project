@@ -79,6 +79,10 @@ void Error_Handler(void);
 #define SCK_GPIO_Port GPIOH
 #define MRT_Pin GPIO_PIN_6
 #define MRT_GPIO_Port GPIOA
+#define ADS8688_RST_PD_Pin GPIO_PIN_4
+#define ADS8688_RST_PD_GPIO_Port GPIOC
+#define ADS8688_CS_Pin GPIO_PIN_12
+#define ADS8688_CS_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 #define CS_Pin GPIO_PIN_1

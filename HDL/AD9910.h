@@ -8,6 +8,12 @@ typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 
+typedef enum
+{
+    AD9910_RAM_WAVE_TRIANGLE = 0,
+    AD9910_RAM_WAVE_SQUARE
+} AD9910_RamWaveform;
+
 #define AD9910_MRT_Set  HAL_GPIO_WritePin(MRT_GPIO_Port, MRT_Pin, GPIO_PIN_SET)
 #define AD9910_MRT_Clr  HAL_GPIO_WritePin(MRT_GPIO_Port, MRT_Pin, GPIO_PIN_RESET)
 
@@ -42,6 +48,11 @@ void AD9910_Parallel_Profile_Init(void);
 void AD9910_Parallel_Profile_Set(void);
 void AD9910_Singal_Profile_Set(u8 addr, u32 Freq, u16 Amp, u16 Pha);
 void AD9910_TriangleWave_Init(u16 amplitude_code);
+void AD9910_RamWave_Init(u16 amplitude_code, u16 sample_count,
+                         u16 address_step_rate,
+                         AD9910_RamWaveform waveform);
+void AD9910_DrgTriangle_Init(u16 amplitude_code, u16 ramp_rate,
+                            u8 dac_fsc_code);
 void Set_Profile(u8 num);
 
 #endif
