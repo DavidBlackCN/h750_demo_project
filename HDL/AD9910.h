@@ -1,6 +1,8 @@
 #ifndef __AD9910_H__
 #define __AD9910_H__
 
+#include "AD9910_Constants.h"
+#include "AD9910_Constants.h"
 #include "gpio.h"
 #include "main.h"
 

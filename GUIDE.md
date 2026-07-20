@@ -170,24 +170,21 @@ $ENV{USERPROFILE}/STM32Cube/Repository/STM32Cube_FW_H7_V1.12.1
 
 如果换机器后配置失败，优先确认 `STM32Cube_FW_H7_V1.12.1` 是否存在，或在 CMake cache 中设置 `STM32CUBE_FW_H7_PATH`。
 
-## AD9910 单 Profile demo
+## AD9910 API
 
-当前主任务为 AD9910 波形 demo。只需在 `Core/Src/main.c` 修改三个宏：
+AD9910 代码已迁入，但当前主任务不启动该模块。调用 `AD9910_API_Init()` 后，可使用以下接口：
 
-```c
-#define AD9910_DEMO_FREQUENCY_HZ       100000UL
-#define AD9910_DEMO_AMPLITUDE_MVPP     500U
-#define AD9910_DEMO_WAVEFORM           AD9910_API_WAVE_TRIANGLE
-```
+- `AD9910_API_StartSineByAmplitudeCode(frequency_hz, amplitude_code)`：以原始 14 位 ASF（`0～0x3FFF`）启动单 Profile 正弦，适合标定与手动调试；连续更新只重写 Profile 0。
+- `AD9910_API_StartWaveform(waveform, frequency_hz, amplitude_mvpp)`：`amplitude_mvpp` 指 AD9910 模块直接输出端；波形可选 `AD9910_API_WAVE_SINE`、`AD9910_API_WAVE_TRIANGLE` 和 `AD9910_API_WAVE_SQUARE`。
+- `AD9910_output_sine(hz, mvpp)`：`mvpp` 指固定十倍后级放大后的目标幅度。其满量程标定值与后级增益定义在 `HDL/AD9910_Constants.h`；换用输出链路前必须重新标定，不能将该接口的幅度语义用于未接十倍后级的直接输出。
 
-波形可选 `AD9910_API_WAVE_SINE`、`AD9910_API_WAVE_TRIANGLE` 或
-`AD9910_API_WAVE_SQUARE`，无需手工换算 AD9910 幅度码。测试步骤如下：
+测试接线与流程如下：
 
 1. 断电接线，开发板与 AD9910 模块必须共地；连接 `MRT=PA6`、`CSN=PD4`、`SCK=PA8`、`SDI=PA12`、`IUP=PD5`、`PF0=PG11`、`PF1=PG9`、`PF2=PG7`。
 2. 按 AD9910 模块要求提供其电源和系统时钟，并将示波器或频谱仪接到模块已配置的模拟输出端；仪器地与系统地相连。勿将 5 V 逻辑电平直接接入 H750 GPIO。
 3. 执行 `cmake --build --preset Debug`，烧录生成的固件，然后复位开发板。
-4. 打开 USART1（PB6/PB7，921600、8N1），启动成功后应看到 `ad9910 waveform started`；参数越界则显示 `ad9910 waveform parameter invalid`。
-5. AD9910 输出端直接接示波器，不经过硬件放大；示波器设为 1 MΩ 高阻输入、DC 耦合，确认频率、波形和 Vpp。三种波形幅度均允许 0～724 mVpp。更换模块或输出网络后需要重新标定。
+4. 从应用代码显式调用待测 API。`AD9910_API_StartWaveform()` 的参数越界会返回 `HAL_ERROR`；`AD9910_output_sine()` 的非法参数会直接返回。
+5. 测量直接输出时，AD9910 输出端接示波器，设为 1 MΩ 高阻输入、DC 耦合，确认频率、波形和 Vpp。`AD9910_API_StartWaveform()` 三种波形幅度均允许 0～724 mVpp；更换模块、输出网络或十倍后级后均需重新标定。
 6. 若无输出，先检查模块电源/时钟、共地、输出端跳线及上述 8 根控制线，再用逻辑分析仪确认 `CSN/SCK/SDI/IUP` 在复位后有写寄存器时序。
 
 正弦波使用单 Profile DDS，支持 1 Hz～400 MHz；三角波和方波使用 RAM 连续回放，支持约 77 Hz～5 MHz。程序会在 50～1024 点之间搜索频率误差最小的组合，同误差时优先选择更多点；100 kHz 使用 625 点、地址步进率 4，频率保持精确的同时明显减小阶梯。频率和幅度均依赖模块的实际系统时钟及模拟输出网络，烧录后必须以示波器实测为准。

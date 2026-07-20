@@ -10,8 +10,6 @@ static u8 Assist_DAC[] = {0x00U, 0x00U, 0x00U, 0x7FU};
 #define AD9910_TRIANGLE_RAM_RATE             5U
 #define AD9910_RAM_POSITIVE_PHASE       0x4000U
 #define AD9910_RAM_NEGATIVE_PHASE       0xC000U
-#define AD9910_AMPLITUDE_CODE_MAX            16383U
-
 static void AD9910_IO_Update(void)
 {
     AD9910_IUP_Clr;
