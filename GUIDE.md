@@ -151,6 +151,40 @@ freq=1000000.0Hz raw=999999.867Hz mode=dma status=valid ticks=7500001 periods=10
 
 串口摘要固定每 1 s 输出一次，即使频率和状态没有变化也会继续输出；无输入时持续输出 `status=no_signal`。高频 DMA 模式会关闭 TIM2 和 DMA1 Stream5 NVIC，由主循环轮询 DMA NDTR 判断完成，避免持续扫频时出现 DMA 完成/中止/重启的中断竞态；切回低频输入捕获时自动恢复 TIM2 NVIC。
 
+## AD9226 并行采集验证 Demo
+
+当前主任务沿用参考工程的采集方式：TIM1_CH1 输出 1 MHz 采样时钟，DCMI 按 12 位并行数据接收，DMA2 Stream1 每帧采集 4096 点。采集缓冲区位于 RAM_D2，已适配当前工程开启的 D-Cache。
+
+数据与时钟接线：
+
+| AD9226 | STM32H750 |
+| --- | --- |
+| D0、D1、D2、D3 | PC6、PC7、PC8、PC9 |
+| D4、D5、D6、D7 | PE4、PB6、PE5、PE6 |
+| D8、D9、D10、D11 | PC10、PC12、PB5、PD2 |
+| CLK | PA8 / TIM1_CH1 |
+| GND | 开发板 GND |
+
+还需要三组回接线：
+
+- PA8 同时接 AD9226 CLK 和 PA6/DCMI_PIXCLK。
+- PB1 接 PA4/DCMI_HSYNC。
+- PB2 接 PB7/DCMI_VSYNC。
+
+`.ioc` 中的主要配置为：DCMI Hardware Sync、12-bit、PIXCLK Falling Edge、HSYNC/VSYNC Active High；DMA2 Stream1 使用 Peripheral-to-Memory、Word/Word、Normal、Very High Priority、FIFO Full、Memory Burst INC4。TIM1 的计数时钟为 240 MHz，PSC=`0`、ARR=`239`、CCR1=`120`，对应 1 MHz、50% 占空比。
+
+USART3 使用 PB10/PB11、115200 8N1，TX 通过 DMA1 Stream4 输出。USART1 为释放 PB6/PB7，在 AD9226 `.ioc` 配置下临时改到 PA9/PA10，板载 USB 转串口通常不能用于该 demo。
+
+建议验收顺序：
+
+1. 断电接线并确认 AD9226 模块供电、参考和数字电平符合模块要求，所有设备共地。
+2. 上电后用示波器检查 PA8 和 PA6，均应看到约 1 MHz 时钟。
+3. 先输入 0 V 或已知直流，观察串口的 `min/max/mean`，检查数据线位序和稳定性。
+4. 输入约 1 kHz 正弦。当前算法只接受约 800～1200 个采样点的周期，默认有效范围约为 833～1250 Hz。
+5. 正常结果包含 `frequency`、`thd`、`u1`～`u5`、`min/max/mean` 和 `periods`；`dcmi_capture_error:1` 表示采集或同步回路失败，`thd_valid:0` 表示有数据但不满足幅度或周期条件。
+
+AD9226 模块按参考工程视为 12 位 offset-binary、标称 10 V 总跨度。基波和谐波电压使用 `10 V / 4096` 换算，该比例及前端增益必须在实物上重新校准，不能把当前编译结果视为幅值精度验收。
+
 ## 串口调试
 
 串口发送入口：

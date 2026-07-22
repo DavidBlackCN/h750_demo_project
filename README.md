@@ -7,6 +7,7 @@
 - AD9833 软件 SPI 驱动：支持寄存器、频率、相位和波形控制。
 - AD9910 波形 API：支持幂等初始化、原始 14 位 ASF 单 Profile 正弦输出，以及按直接输出 mVpp 设置的正弦/三角波/方波；RAM 三角波和方波使用 50～1024 点自适应 polar 回放。十倍后级方案的满量程标定集中在 `HDL/AD9910_Constants.h`。
 - ADS8688 硬件 SPI 驱动：支持命令/程序寄存、单通道手动采样、量程换算和 VOFA+ FireWater 输出。
+- AD9226 12 位并行采集：TIM1 输出 1 MHz 时钟，DCMI + DMA2 采集 4096 点，支持约 1 kHz 正弦的频率、基波至五次谐波和 THD 验证。
 - DAC8830 驱动：已移植高层电压/码值接口，支持 TIM4 + DMA 驱动 SPI1 输出波形。
 - STM32H750 片上 DAC 波形输出：TIM4 触发 DAC1 CH1 DMA，支持正弦、方波、三角波、锯齿波、直流。
 - ADC1 + ADC2 双重规则同步采样：频率测量帧以1 MS/s同时触发`PA1_C / ADC1_INP1`和`PA7 / ADC2_INP7`，相位帧根据测得频率自动调整TIM1分频和采样点数。
@@ -27,7 +28,7 @@
 
 ## 默认启动流程
 
-`Core/Src/main.c` 当前运行淘晶驰串口屏 demo。上电后进入 `main` 页面，每秒更新计数值；屏幕上的按钮可暂停/继续计数或将计数清零。其他测量、采集和信号产生模块仍保留，但主程序不启动。
+`Core/Src/main.c` 当前运行 AD9226 验证 demo。上电后通过 USART3 输出就绪信息，随后连续采集 4096 点并输出频率、THD、五次谐波、原始码极值和均值。该 demo 针对约 1 kHz 正弦；其他模块仍保留，但主程序不启动。
 
 ## 构建
 
@@ -43,8 +44,9 @@ cmake --build --preset Debug
 ## 关键配置
 
 - MCU：STM32H750XBHx，工程名 `adc_fft_demo`。
-- USART1：PB6 TX、PB7 RX，921600 baud，保留为 USB 调试串口和 `printf` 重定向端口。
-- USART3：PB10 TX、PB11 RX，115200 baud，当前专用于淘晶驰串口屏。
+- USART1：AD9226 主任务下在 `.ioc` 中临时映射到 PA9 TX、PA10 RX，以释放 PB6/PB7；板载 USB 串口不可用于本 demo。
+- USART3：PB10 TX、PB11 RX，115200 baud，当前用于 AD9226 摘要输出。
+- AD9226：D0～D11 使用 PC6/PC7/PC8/PC9/PE4/PB6/PE5/PE6/PC10/PC12/PB5/PD2，PA8 输出 1 MHz CLK 并回接 PA6/PIXCLK，PB1→PA4、PB2→PB7 为 DCMI 同步门控回路。
 - 方波测频：PA0 / TIM2_CH1，上升沿输入捕获；TIM2 时钟当前为 75 MHz，DMA 使用 DMA1 Stream5。
 - ADC1：PA1_C / ADC1_INP1，双 ADC 主机通道。
 - ADC2：PA7 / ADC2_INP7，双 ADC 从机通道；与DAC8830的SPI1_MOSI复用，不能同时运行。

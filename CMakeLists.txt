@@ -67,6 +67,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    API/AD9226_API.c
     API/ADS8688_API.c
     API/AD9910_API.c
     API/ADC_API.c
@@ -75,10 +76,12 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     API/PHASE_API.c
     API/TJC_HMI_API.c
     BLL/ADC_BLL.c
+    BLL/AD9226_BLL.c
     BLL/ADS8688_BLL.c
     BLL/FFT_BLL.c
     BLL/PHASE_BLL.c
     BLL/USART_BLL.c
+    HDL/AD9226.c
     HDL/AD9833.c
     HDL/ADS8688.c
     HDL/AD9910.c

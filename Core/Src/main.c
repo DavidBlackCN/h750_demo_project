@@ -28,7 +28,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "TJC_HMI_API.h"
+#include "AD9226_API.h"
 
 /* USER CODE END Includes */
 
@@ -95,10 +95,10 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_USART1_UART_Init();
+  MX_DMA_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-  if (TJC_HMI_API_Init(&huart3) != HAL_OK)
+  if (AD9226_API_Init() != HAL_OK)
   {
     Error_Handler();
   }
@@ -111,7 +111,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    TJC_HMI_API_Process();
+    AD9226_API_Process();
   }
   /* USER CODE END 3 */
 }

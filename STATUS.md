@@ -1,10 +1,15 @@
 # 项目状态
 
-更新时间：2026-07-19
+更新时间：2026-07-22
 
 ## 已验证
 
 - `cmake --build --preset Debug` 编译、链接通过。
+- 当前 AD9226 demo 已编译、链接通过：
+  - FLASH：70388 B / 128 KB（53.70%）。
+  - DTCMRAM：20040 B / 128 KB（15.29%）。
+  - RAM_D2：8704 B / 288 KB（2.95%）。
+  - 尚未上板验证 DCMI 引脚、采样时钟、码序和 THD 结果。
 - 当前串口屏 demo 构建后资源占用：
   - FLASH：41972 B / 128 KB（32.02%）。
   - DTCMRAM：3176 B / 128 KB（2.42%）。
@@ -29,13 +34,16 @@
 
 ## 当前主程序行为
 
-- 当前主任务为淘晶驰 `TJC1060X570_011C_I` 串口屏 demo，仅启动 GPIO、USART1 和 USART3，其他 demo 代码保留但不调用。
-- CubeMX 本次生成后 CPU 主频为 480 MHz、AXI/AHB 为 240 MHz，`main.c` 显式开启 I/D Cache。
-- USART1 使用 PB6/PB7、921600 8N1，保留给板载 USB 转串口及 `printf` 调试；USART3 使用 PB10/PB11、115200 8N1，专用于 TTL 串口屏。屏幕上电等待 800 ms 后进入 `main` 页面并开始每秒刷新计数。
-- `b0` 通过 `5A A5 01 FF FF FF` 回传暂停/继续命令，`b1` 通过 `5A A5 02 FF FF FF` 回传清零命令。
+- 当前主任务为 AD9226 验证 demo，仅启动 GPIO、DMA 和 USART3；AD9226 驱动内部初始化 DCMI、DMA2 Stream1 和 TIM1_CH1。
+- CPU 主频为 480 MHz、AXI/AHB 为 240 MHz，`main.c` 显式开启 I/D Cache。DCMI DMA 与 USART3 TX DMA 缓冲区位于 `.dma_buffer` / RAM_D2，并执行 Cache 维护。
+- PA8 输出 1 MHz、50% 占空比采样时钟；每帧通过 12 位 DCMI 采集 4096 点。分析链路只接受周期约为 800～1200 点的输入，即当前主要面向约 1 kHz 正弦验证。
+- USART3 使用 PB10/PB11、115200 8N1，以约 10 Hz 输出频率、THD、U1～U5、原始码极值和均值。USART1 在 `.ioc` 中临时改至 PA9/PA10，不由主任务初始化。
 
 ## 已实现模块
 
+- `HDL/AD9226.*`：12 位 DCMI 并口、TIM1 采样时钟、同步门控和 DMA2 固定帧采集。
+- `BLL/AD9226_BLL.*`：周期检测、单周期相干重采样、1024 点 FFT、基波至五次谐波和 THD。
+- `API/AD9226_API.*`：当前验证 demo 初始化、逐帧处理、错误提示和 USART3 DMA 摘要输出。
 - `HDL/AD9833.*`：AD9833 寄存器写入、频率、相位和波形控制。
 - `HDL/AD9910.*`：AD9910 GPIO、寄存器写入和 Profile 设置基础代码；`HDL/AD9910_Constants.h` 集中定义 ASF 上限与固定十倍后级的满量程标定参数。
 - `HDL/ADS8688.*`：ADS8688 SPI2 命令、程序寄存、量程和手动转换驱动。
@@ -55,16 +63,23 @@
 - `API/AD9910_API.*`：按波形类型、频率和直接输出 mVpp 参数启动 AD9910，支持幂等初始化与原始 14 位 ASF 单 Profile 正弦输出；连续正弦更新只重写 Profile 0，从 RAM 模式切回时才重新配置单 Profile 模式。
 - `API/ADS8688_API.*`：CH1 demo 初始化、连续采样和 VOFA+ FireWater 输出。
 - `HDL/TJC_HMI.*`：淘晶驰字符串指令发送、文本/数值赋值、标准触摸帧和 demo 自定义帧解析。
-- `API/TJC_HMI_API.*`：当前串口屏 demo 的页面初始化、周期刷新和按钮业务入口。
+- `API/TJC_HMI_API.*`：串口屏 demo 的页面初始化、周期刷新和按钮业务入口，当前主任务不调用。
 
 ## 当前引脚定义
 
 | 功能 | 引脚 | 说明 |
 | --- | --- | --- |
-| USART1_TX | PB6 | USB 调试串口 TX，921600 baud |
-| USART1_RX | PB7 | USB 调试串口 RX，921600 baud |
-| USART3_TX | PB10 | 淘晶驰串口屏 RX，115200 baud |
-| USART3_RX | PB11 | 淘晶驰串口屏 TX，115200 baud |
+| USART1_TX | PA9 | AD9226 任务下临时映射；主任务不初始化 |
+| USART1_RX | PA10 | AD9226 任务下临时映射；主任务不初始化 |
+| USART3_TX | PB10 | AD9226 摘要输出，115200 baud |
+| USART3_RX | PB11 | 当前未使用 |
+| AD9226_D0～D3 | PC6/PC7/PC8/PC9 | DCMI 12 位数据低四位 |
+| AD9226_D4～D7 | PE4/PB6/PE5/PE6 | DCMI 12 位数据中四位 |
+| AD9226_D8～D11 | PC10/PC12/PB5/PD2 | DCMI 12 位数据高四位 |
+| AD9226_CLK | PA8 / TIM1_CH1 | 1 MHz 输出，同时回接 PA6 |
+| DCMI_PIXCLK | PA6 | 接 PA8/AD9226 CLK 同一时钟网络 |
+| DCMI_HSYNC_GATE | PB1 → PA4 | 必须外部短接 |
+| DCMI_VSYNC_GATE | PB2 → PB7 | 必须外部短接 |
 | ADS8688_CS | PB12 | ADS8688 片选，软件控制，低有效 |
 | ADS8688_RST_PD | PC4 | ADS8688 复位/低功耗控制，demo 保持高电平 |
 | ADS8688_SCK | PB13 / SPI2_SCK | 硬件 SPI 时钟，17 MHz |
@@ -94,15 +109,17 @@
 
 ## 待确认
 
+- AD9226 目前仅完成编译验证。上板后需先确认 PA8/PA6 均为 1 MHz 时钟，再检查 12 根数据线位序、静态输入码、1 kHz 正弦的 `min/max/mean`，最后验收频率和 THD。
+- AD9226 与 AD9910 共用 PA6/PA8，与片上 DAC 共用 PA4，与原板载 USART1 共用 PB6/PB7，并占用 TIM1；当前主任务不得同时初始化这些模块。切换回其他 demo 时需恢复对应 `.ioc` 引脚和 TIM1 配置。
 - ADS8688 demo 目前只是“已编译”，需要用 CH1 实际电压完成通信、零点、正负满量程和 VOFA+ 波形验收。
-- `.ioc` 已同步 USART3（PB10/PB11）、USART1/USART3 波特率、内部 HSI 派生的 480 MHz 时钟入口、ADC2_INP7 和 TIM1 Update TRGO。PA7 在 `.ioc` 中以已实物验收的 ADC2 输入为基准；DAC8830 的 SPI1_MOSI 仍是切换任务时使用的源码级复用，CubeMX 无法同时表达二者。
+- `.ioc` 当前以 AD9226 主任务为准，已同步 DCMI 12 位数据总线、TIM1_CH1 PWM、DMA2 Stream1、USART3 TX DMA 和 PA9/PA10 USART1 临时映射。切换回双 ADC、片上 DAC、AD9910 或板载 USART1 任务时必须恢复相应冲突配置。
 - VOFA+ FireWater 依赖换行分帧，不应在同一 UART 中插入其他日志，否则会增加无关通道或造成解析干扰。
 
 - 方波测频尚未用实物信号源覆盖验证 1 Hz、频段切换点、10 kHz 分辨率切换点和 1 MHz 上限；应重点观察串口 `raw`、`mode`、`ticks` 和 `periods`。
 - 当前 TIM2 标称时钟为 75 MHz，来自内部 HSI。已按本次 1 MHz 实测做单点比例校准，但系数可能随板卡、温度和时钟条件变化；高精度场景仍建议多频点复核或使用外部高精度时钟。
 - PA0 输入必须限制在 0 到 3.3 V，并与信号源共地；5 V 方波不可直接输入。
 
-- TIM1 TRGO已改为Update，理论采样率为1 MHz；当前系统使用内部HSI派生时钟，实测前仍需用已知信号复核真实采样率。
+- AD9226 的 TIM1_CH1 标称输出为 1 MHz；当前系统使用内部 HSI 派生时钟，实测前仍需用示波器复核 PA8/PA6 的真实频率和边沿质量。
 - 相位校准表当前四个频点均为`0°`占位值。达到全频段0.5°指标前，必须使用同源一分二输入，在1 kHz、10 kHz、50 kHz、100 kHz测出通道固定相差并写入`BLL/PHASE_BLL.c`。
 - 相干采样以第一帧频率估计为依据；若输入在两帧之间发生跳频或漂移，第二帧不再严格相干，需依靠`closure`、拟合质量和重复测量识别。
 - `.ioc` 已按双 ADC 主链路补齐 ADC2 和 TIM1 配置，但 PA7 的 ADC2/SPI1_MOSI 互斥仍需在切换相位与 DAC8830 任务时人工确认；不要在同一主任务中同时初始化二者。
