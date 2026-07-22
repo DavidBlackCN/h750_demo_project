@@ -28,6 +28,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "AD9910_API.h"
+#include "G_BASIC_API.h"
+#include <stdio.h>
+
 #include "G_CONSOLE_API.h"
 #include "G_DIGITAL_MODEL_API.h"
 #include "TJC_HMI_API.h"
@@ -40,7 +44,22 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define G_APP_SINGLE_TONE_TEST       0U
+#define G_APP_TEST_FREQUENCY_HZ      1000U
+#define G_APP_TEST_OUTPUT_MVPP       200U
+#define G_APP_REQUIREMENT4_CALIBRATION_TEST  0U
+#define G_APP_REQUIREMENT4_CALIBRATION_SEQUENCE  0U
+#define G_APP_REQUIREMENT4_CALIBRATION_MAILBOX  0U
+#define G_APP_CALIBRATION_FREQUENCY_HZ       1000U
+#define G_APP_CALIBRATION_TARGET_TENTHS_VPP    20U
+#define G_APP_CALIBRATION_START_DELAY_MS      6000U
+#define G_APP_CALIBRATION_DWELL_MS            5000U
+
+#if (!G_APP_SINGLE_TONE_TEST && !G_APP_REQUIREMENT4_CALIBRATION_TEST && \
+     !G_APP_REQUIREMENT4_CALIBRATION_SEQUENCE && \
+     !G_APP_REQUIREMENT4_CALIBRATION_MAILBOX)
 #define G_APP_SELECTED_REQUIREMENT  G_CONSOLE_API_REQUIREMENT_ALL
+#endif
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -52,6 +71,25 @@
 
 /* USER CODE BEGIN PV */
 
+#if (G_APP_REQUIREMENT4_CALIBRATION_SEQUENCE || \
+     G_APP_REQUIREMENT4_CALIBRATION_MAILBOX)
+static const uint8_t g_app_calibration_targets_tenths_vpp[] =
+{
+  10U, 11U, 12U, 13U, 14U, 15U, 16U, 17U, 18U, 19U, 20U
+};
+
+static uint8_t g_app_calibration_target_index;
+static uint32_t g_app_calibration_frequency_hz = 100U;
+static uint32_t g_app_calibration_last_tick;
+static bool g_app_calibration_started;
+static bool g_app_calibration_finished;
+
+volatile uint32_t g_app_calibration_mailbox_frequency_hz = 100U;
+volatile uint32_t g_app_calibration_mailbox_target_tenths_vpp = 10U;
+volatile uint32_t g_app_calibration_mailbox_generation;
+static uint32_t g_app_calibration_mailbox_applied_generation = UINT32_MAX;
+#endif
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,6 +100,84 @@ static void MPU_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#if (G_APP_REQUIREMENT4_CALIBRATION_SEQUENCE || \
+     G_APP_REQUIREMENT4_CALIBRATION_MAILBOX)
+static void G_AppCalibrationSequence_StartCurrentPoint(void)
+{
+  if (G_BasicAPI_StartRequirement4(
+          g_app_calibration_frequency_hz,
+          g_app_calibration_targets_tenths_vpp[
+              g_app_calibration_target_index]) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+static void G_AppCalibrationSequence_Process(void)
+{
+  uint32_t now = HAL_GetTick();
+
+  if (g_app_calibration_finished)
+  {
+    return;
+  }
+
+  if (!g_app_calibration_started)
+  {
+    if (now < G_APP_CALIBRATION_START_DELAY_MS)
+    {
+      return;
+    }
+
+    g_app_calibration_started = true;
+    g_app_calibration_last_tick = now;
+    G_AppCalibrationSequence_StartCurrentPoint();
+    return;
+  }
+
+  if ((now - g_app_calibration_last_tick) < G_APP_CALIBRATION_DWELL_MS)
+  {
+    return;
+  }
+
+  g_app_calibration_last_tick = now;
+  g_app_calibration_target_index++;
+  if (g_app_calibration_target_index >=
+      (sizeof(g_app_calibration_targets_tenths_vpp) /
+       sizeof(g_app_calibration_targets_tenths_vpp[0])))
+  {
+    g_app_calibration_target_index = 0U;
+    g_app_calibration_frequency_hz += 100U;
+    if (g_app_calibration_frequency_hz > 3000U)
+    {
+      g_app_calibration_finished = true;
+      return;
+    }
+  }
+
+  G_AppCalibrationSequence_StartCurrentPoint();
+}
+
+static void G_AppCalibrationMailbox_Process(void)
+{
+  uint32_t generation = g_app_calibration_mailbox_generation;
+
+  if (generation == g_app_calibration_mailbox_applied_generation)
+  {
+    return;
+  }
+
+  if ((g_app_calibration_mailbox_target_tenths_vpp > UINT8_MAX) ||
+      (G_BasicAPI_StartRequirement4(
+          g_app_calibration_mailbox_frequency_hz,
+          (uint8_t)g_app_calibration_mailbox_target_tenths_vpp) != HAL_OK))
+  {
+    Error_Handler();
+  }
+
+  g_app_calibration_mailbox_applied_generation = generation;
+}
+#endif
 /* USER CODE END 0 */
 
 /**
@@ -98,6 +214,11 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+#if (G_APP_SINGLE_TONE_TEST || G_APP_REQUIREMENT4_CALIBRATION_TEST || \
+     G_APP_REQUIREMENT4_CALIBRATION_SEQUENCE || \
+     G_APP_REQUIREMENT4_CALIBRATION_MAILBOX)
+  MX_USART1_UART_Init();
+#else
   MX_DMA_Init();
   MX_ADC1_Init();
   MX_DAC1_Init();
@@ -105,8 +226,29 @@ int main(void)
   MX_TIM4_Init();
   MX_USART1_UART_Init();
   MX_USART3_UART_Init();
+#endif
   /* USER CODE BEGIN 2 */
 
+#if G_APP_SINGLE_TONE_TEST
+  AD9910_output_sine(G_APP_TEST_FREQUENCY_HZ,
+                     G_APP_TEST_OUTPUT_MVPP);
+  printf("TEST sine=%luHz output=%lumVpp\r\n",
+         (unsigned long)G_APP_TEST_FREQUENCY_HZ,
+         (unsigned long)G_APP_TEST_OUTPUT_MVPP);
+#elif G_APP_REQUIREMENT4_CALIBRATION_TEST
+  if (G_BasicAPI_StartRequirement4(G_APP_CALIBRATION_FREQUENCY_HZ,
+                                   G_APP_CALIBRATION_TARGET_TENTHS_VPP) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  printf("CAL R4 f=%luHz target=%.1fVpp\r\n",
+         (unsigned long)G_APP_CALIBRATION_FREQUENCY_HZ,
+         (float)G_APP_CALIBRATION_TARGET_TENTHS_VPP / 10.0f);
+#elif G_APP_REQUIREMENT4_CALIBRATION_SEQUENCE
+  printf("CAL R4 sequence 100Hz-3000Hz, 1.0Vpp-2.0Vpp\r\n");
+#elif G_APP_REQUIREMENT4_CALIBRATION_MAILBOX
+  printf("CAL R4 mailbox ready\r\n");
+#else
   if (G_ConsoleAPI_Init(&huart1, G_APP_SELECTED_REQUIREMENT) != HAL_OK)
   {
     Error_Handler();
@@ -116,6 +258,7 @@ int main(void)
     Error_Handler();
   }
   G_DigitalModelAPI_Init();
+#endif
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -125,9 +268,19 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+#if G_APP_REQUIREMENT4_CALIBRATION_SEQUENCE
+    G_AppCalibrationSequence_Process();
+    __WFI();
+#elif G_APP_REQUIREMENT4_CALIBRATION_MAILBOX
+    G_AppCalibrationMailbox_Process();
+    __WFI();
+#elif (G_APP_SINGLE_TONE_TEST || G_APP_REQUIREMENT4_CALIBRATION_TEST)
+    __WFI();
+#else
     G_ConsoleAPI_Process();
     TJC_HMI_API_Process();
     G_DigitalModelAPI_Process();
+#endif
   }
   /* USER CODE END 3 */
 }

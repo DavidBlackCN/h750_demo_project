@@ -1,0 +1,13 @@
+interface:
+  display_name: "电赛信号台"
+  short_description: "安全控制示波器和信号源并生成证据"
+  default_prompt: "使用 $econtest-signal-bench 安全配置并测量低压电赛信号。"
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "econtest-bench-mcp"
+      description: "通过 USB/VISA 控制 SIGLENT 示波器和信号发生器"
+
+policy:
+  allow_implicit_invocation: true
