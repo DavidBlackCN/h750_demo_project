@@ -85,6 +85,12 @@ void Error_Handler(void);
 #define ADS8688_CS_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+#define G_MODEL_KEY_Pin GPIO_PIN_1
+#define G_MODEL_KEY_GPIO_Port GPIOB
+#define G_MODEL_LED_Pin GPIO_PIN_13
+#define G_MODEL_LED_GPIO_Port GPIOC
+#define G_MODEL_LED_ON_STATE GPIO_PIN_RESET
+#define G_MODEL_LED_OFF_STATE GPIO_PIN_SET
 #define CS_Pin GPIO_PIN_1
 #define CS_GPIO_Port GPIOA
 #define SDA_Pin GPIO_PIN_4

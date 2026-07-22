@@ -72,11 +72,16 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     API/ADC_API.c
     API/FFT_API.c
     API/FREQ_API.c
+    API/G_BASIC_API.c
+    API/G_CONSOLE_API.c
+    API/G_DIGITAL_MODEL_API.c
     API/PHASE_API.c
     API/TJC_HMI_API.c
     BLL/ADC_BLL.c
     BLL/ADS8688_BLL.c
     BLL/FFT_BLL.c
+    BLL/G_MODEL_BLL.c
+    BLL/G_IIR_MODEL_BLL.c
     BLL/PHASE_BLL.c
     BLL/USART_BLL.c
     HDL/AD9833.c
@@ -91,7 +96,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     FML/DAC_FML.c
     FML/FFT_FML.c
     FML/FREQ_FML.c
+    FML/G_DIGITAL_MODEL_FML.c
     FML/USART_FML.c
+    Core/Src/uart_redirect.c
 )
 
 # Add include paths

@@ -6,6 +6,8 @@
 
 - AD9833 软件 SPI 驱动：支持寄存器、频率、相位和波形控制。
 - AD9910 波形 API：用户直接设置频率、mVpp 和正弦/三角波/方波类型；内部根据板级实测关系换算幅度，三角波和方波使用 50～1024 点自适应 RAM polar 回放。
+- G 题基本要求（2）（3）（4）：AD9910 单 Profile 正弦输出、固定 10 倍后级幅度换算、100 Hz～3 kHz 的 30 点已知模型增益表，以及 USART1/淘晶驰串口屏双控制入口。
+- G 题数字已知模型：PB1 按键启动 PA1_C→1 MS/s ADC→二阶 IIR→PA4 DAC 链路，复制 `H(s)=1/(1e-8*s^2+3e-4*s+1)`，PC13 指示运行状态。
 - ADS8688 硬件 SPI 驱动：支持命令/程序寄存、单通道手动采样、量程换算和 VOFA+ FireWater 输出。
 - DAC8830 驱动：已移植高层电压/码值接口，支持 TIM4 + DMA 驱动 SPI1 输出波形。
 - STM32H750 片上 DAC 波形输出：TIM4 触发 DAC1 CH1 DMA，支持正弦、方波、三角波、锯齿波、直流。
@@ -27,7 +29,7 @@
 
 ## 默认启动流程
 
-`Core/Src/main.c` 当前运行淘晶驰串口屏 demo。上电后进入 `main` 页面，每秒更新计数值；屏幕上的按钮可暂停/继续计数或将计数清零。其他测量、采集和信号产生模块仍保留，但主程序不启动。
+`Core/Src/main.c` 当前运行完整题目应用：上电不启动 AD9910 输出或数字模型；USART1 用 `r2/r3/r4` 命令控制基本要求2/3/4，USART3 仅提供原有串口屏界面。数字模型独立由 PB1 启动，不接入串口屏。
 
 ## 构建
 
@@ -44,12 +46,12 @@ cmake --build --preset Debug
 
 - MCU：STM32H750XBHx，工程名 `adc_fft_demo`。
 - USART1：PB6 TX、PB7 RX，921600 baud，保留为 USB 调试串口和 `printf` 重定向端口。
-- USART3：PB10 TX、PB11 RX，115200 baud，当前专用于淘晶驰串口屏。
+- USART3：PB10 TX、PB11 RX，115200 baud，当前连接淘晶驰串口屏。
 - 方波测频：PA0 / TIM2_CH1，上升沿输入捕获；TIM2 时钟当前为 75 MHz，DMA 使用 DMA1 Stream5。
-- ADC1：PA1_C / ADC1_INP1，双 ADC 主机通道。
+- ADC1：PA1_C / ADC1_INP1，数字已知模型输入；切换相位任务时作为双 ADC 主机通道。
 - ADC2：PA7 / ADC2_INP7，双 ADC 从机通道；与DAC8830的SPI1_MOSI复用，不能同时运行。
 - 当前 CubeMX 生成时钟：CPU 480 MHz、AXI/AHB 240 MHz；其他会变的时钟和资源事实见 `STATUS.md`。
-- ADC 采样：16 bit、TIM1 TRGO、DMA normal；测频帧固定4096点/1 MS/s，相位帧动态3072～4096点、采样率1～1.1 MS/s。
+- ADC 采样：16 bit、TIM1 TRGO；数字模型启动后改为 256 点 DMA circular/1 MS/s，相位任务保留原单次采集流程。
 - 片上 DAC1：PA4 / DAC1_OUT1，TIM4 TRGO 触发，DMA circular。
 - AD9833：`CS=PA1`、`SDA=PH4`、`SCK=PH5`。
 - AD9910：见 `Core/Inc/main.h` 中 `MRT/PF0/PF1/PF2/IUP/CSN/SDI/SCK9` 宏。

@@ -77,6 +77,11 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(ADS8688_CS_GPIO_Port, ADS8688_CS_Pin, GPIO_PIN_SET);
 
+  /* Digital known-model indicator is off until PB1 starts the filter. */
+  HAL_GPIO_WritePin(G_MODEL_LED_GPIO_Port,
+                    G_MODEL_LED_Pin,
+                    G_MODEL_LED_OFF_STATE);
+
   /*Configure GPIO pins : PF1_Pin PF0_Pin PF2_Pin */
   GPIO_InitStruct.Pin = PF1_Pin|PF0_Pin|PF2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -125,6 +130,19 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(ADS8688_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB1 digital known-model start key */
+  GPIO_InitStruct.Pin = G_MODEL_KEY_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(G_MODEL_KEY_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PC13 digital known-model running LED */
+  GPIO_InitStruct.Pin = G_MODEL_LED_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(G_MODEL_LED_GPIO_Port, &GPIO_InitStruct);
 
   /*AnalogSwitch Config */
   HAL_SYSCFG_AnalogSwitchConfig(SYSCFG_SWITCH_PA1, SYSCFG_SWITCH_PA1_CLOSE);

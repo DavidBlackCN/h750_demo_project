@@ -1,5 +1,6 @@
 #include "ADC_FML.h"
 
+#include "G_DIGITAL_MODEL_FML.h"
 #include "USART_FML.h"
 #include "adc.h"
 #include "tim.h"
@@ -51,6 +52,11 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
     if (hadc->Instance == ADC1)
     {
+        if (G_DigitalModelFML_IsRunning())
+        {
+            G_DigitalModelFML_ADCProcess(false);
+            return;
+        }
         adc1_half_callback_count++;
         adc1_half_flag = 1;
         adc1_debug_capture(hadc, 1U);
@@ -61,6 +67,11 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
     if (hadc->Instance == ADC1)
     {
+        if (G_DigitalModelFML_IsRunning())
+        {
+            G_DigitalModelFML_ADCProcess(true);
+            return;
+        }
         /* Freeze the trigger immediately; the normal-mode DMA frame is full. */
         __HAL_TIM_DISABLE(&htim1);
         adc1_full_callback_count++;
@@ -73,6 +84,11 @@ void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
 {
     if (hadc->Instance == ADC1)
     {
+        if (G_DigitalModelFML_IsRunning())
+        {
+            G_DigitalModelFML_ADCError();
+            return;
+        }
         adc1_error_callback_count++;
         adc1_debug_capture(hadc, 3U);
     }

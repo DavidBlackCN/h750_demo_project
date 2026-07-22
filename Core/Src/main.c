@@ -28,6 +28,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "G_CONSOLE_API.h"
+#include "G_DIGITAL_MODEL_API.h"
 #include "TJC_HMI_API.h"
 
 /* USER CODE END Includes */
@@ -38,6 +40,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define G_APP_SELECTED_REQUIREMENT  G_CONSOLE_API_REQUIREMENT_ALL
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -95,13 +98,24 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_ADC1_Init();
+  MX_DAC1_Init();
+  MX_TIM1_Init();
+  MX_TIM4_Init();
   MX_USART1_UART_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
+
+  if (G_ConsoleAPI_Init(&huart1, G_APP_SELECTED_REQUIREMENT) != HAL_OK)
+  {
+    Error_Handler();
+  }
   if (TJC_HMI_API_Init(&huart3) != HAL_OK)
   {
     Error_Handler();
   }
+  G_DigitalModelAPI_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -111,7 +125,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    G_ConsoleAPI_Process();
     TJC_HMI_API_Process();
+    G_DigitalModelAPI_Process();
   }
   /* USER CODE END 3 */
 }

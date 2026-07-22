@@ -4,7 +4,7 @@
 #include <string.h>
 
 #define TJC_HMI_COMMAND_MAX_LENGTH  96U
-#define TJC_HMI_RX_FRAME_MAX_LENGTH 16U
+#define TJC_HMI_RX_FRAME_MAX_LENGTH 64U
 #define TJC_HMI_TX_TIMEOUT_MS       20U
 
 static UART_HandleTypeDef *tjc_huart;
@@ -14,7 +14,9 @@ static uint8_t tjc_rx_ff_count;
 
 static TJC_HMI_Event TJC_HMI_ParseFrame(void)
 {
-    TJC_HMI_Event event = {TJC_HMI_EVENT_NONE, 0U, 0U, 0U};
+    TJC_HMI_Event event = {0};
+
+    event.type = TJC_HMI_EVENT_NONE;
 
     if ((tjc_rx_length == 1U) && (tjc_rx_frame[0] == 0x88U))
     {
@@ -31,14 +33,28 @@ static TJC_HMI_Event TJC_HMI_ParseFrame(void)
              (tjc_rx_frame[0] == 0x5AU) &&
              (tjc_rx_frame[1] == 0xA5U))
     {
-        if (tjc_rx_frame[2] == 0x01U)
+        event.type = TJC_HMI_EVENT_COMMAND;
+        event.command = tjc_rx_frame[2];
+    }
+    else if ((tjc_rx_length == 5U) && (tjc_rx_frame[0] == 0x71U))
+    {
+        event.type = TJC_HMI_EVENT_NUMBER;
+        event.value = (uint32_t)tjc_rx_frame[1] |
+                      ((uint32_t)tjc_rx_frame[2] << 8U) |
+                      ((uint32_t)tjc_rx_frame[3] << 16U) |
+                      ((uint32_t)tjc_rx_frame[4] << 24U);
+    }
+    else if ((tjc_rx_length >= 1U) && (tjc_rx_frame[0] == 0x70U))
+    {
+        size_t text_length = (size_t)tjc_rx_length - 1U;
+
+        if (text_length >= sizeof(event.text))
         {
-            event.type = TJC_HMI_EVENT_DEMO_TOGGLE;
+            text_length = sizeof(event.text) - 1U;
         }
-        else if (tjc_rx_frame[2] == 0x02U)
-        {
-            event.type = TJC_HMI_EVENT_DEMO_RESET;
-        }
+        memcpy(event.text, &tjc_rx_frame[1], text_length);
+        event.text[text_length] = '\0';
+        event.type = TJC_HMI_EVENT_TEXT;
     }
 
     tjc_rx_length = 0U;
@@ -118,8 +134,10 @@ HAL_StatusTypeDef TJC_HMI_SetValue(const char *object, int32_t value)
 
 TJC_HMI_Event TJC_HMI_Poll(void)
 {
-    TJC_HMI_Event no_event = {TJC_HMI_EVENT_NONE, 0U, 0U, 0U};
+    TJC_HMI_Event no_event = {0};
     uint8_t byte;
+
+    no_event.type = TJC_HMI_EVENT_NONE;
 
     if (tjc_huart == NULL)
     {
