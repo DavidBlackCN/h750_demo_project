@@ -1,0 +1,13 @@
+# Copy this file to local.ps1 and replace the placeholder paths for this PC.
+# local.ps1 is intentionally ignored by Git so workstation-specific paths do
+# not enter the repository.
+@{
+    # STM32CubeIDE for VS Code's cube-cmake.exe and the directory containing
+    # cube.exe and its runtime DLLs.
+    CubeCmakePath  = 'C:/path/to/cube-cmake.exe'
+    CubeBinDir     = 'C:/path/to/STM32CubeIDE/binaries'
+
+    # OpenOCD installation used for CMSIS-DAP / DAPLink programming.
+    OpenOcdPath    = 'C:/path/to/openocd.exe'
+    OpenOcdScripts = 'C:/path/to/openocd/scripts'
+}

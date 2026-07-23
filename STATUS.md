@@ -149,5 +149,7 @@
 
 ## 工作区注意
 
+- 命令行编译/烧录统一入口为 `Tools/build.ps1` 和 `Tools/flash.ps1`；本机 CubeIDE VS Code / OpenOCD 绝对路径仅保存在被 Git 忽略的 `Tools/config/local.ps1`，可提交的模板为 `Tools/config/local.ps1.example`。烧录脚本固定先构建成功再下载，且校验 OpenOCD 的 programming、verify、reset 输出；除非用户明确授权，AI 不执行这两类脚本。
+- 2026-07-23 已使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\flash.ps1` 完成脚本实测：Debug 构建无待编译目标，CMSIS-DAPv2（序列号 `132765404740`）识别 STM32H7，OpenOCD 的 programming、verify、reset 均成功。脚本已兼容 OpenOCD stderr 横幅和 Windows 路径传给 OpenOCD Tcl 时的转义问题。
 - 文档生成前工作区已有无关修改：`.clangd`、`.settings/*`、`.vscode/c_cpp_properties.json`。
 - 后续开发请避免回退这些未确认来源的文件。

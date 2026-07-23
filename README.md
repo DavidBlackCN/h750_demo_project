@@ -30,6 +30,7 @@
 - `.agents/skills/stm32h750-iir-ad-da-filter/`：ADC1→二阶 IIR→DAC1 实时低通技能，涵盖 DMA、缓存一致性、对照测试与噪声排查。
 - `Drivers/`、`Middlewares/`：STM32 HAL、CMSIS 和 DSP 相关依赖。
 - `cmake/`、`CMakeLists.txt`：CMake/Ninja 构建配置。
+- `Tools/`：统一的 PowerShell 编译/烧录入口；本机路径位于被 Git 忽略的 `Tools/config/local.ps1`，示例见 `local.ps1.example`。
 
 ## 默认启动流程
 
@@ -37,14 +38,13 @@
 
 ## 构建
 
-推荐使用 CMake Preset：
+需要命令行构建时，先复制 `Tools/config/local.ps1.example` 为 `Tools/config/local.ps1` 并填写本机 CubeIDE VS Code / OpenOCD 路径，再使用统一入口：
 
 ```powershell
-cmake --preset Debug
-cmake --build --preset Debug
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 ```
 
-当前已验证 `cmake --build --preset Debug` 可以通过。
+构建目录或缓存失效时，在命令末尾追加 `-Reconfigure`；明确需要烧录时将脚本改为 `Tools\flash.ps1`，该脚本总会先成功构建再烧录。未明确要求时，自动化流程不应自行编译或改写板上 FLASH。
 
 ## 关键配置
 

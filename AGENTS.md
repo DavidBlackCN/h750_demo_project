@@ -33,60 +33,42 @@
 按改动风险执行：
 
 ```powershell
-cmake --build --preset Debug
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 git diff --check
 git status --short
 ```
 
-- 代码改动尽量完成 Debug 构建；若构建环境缺失，明确说明未验证项。
+- 一般情况下，AI 不自行执行编译或烧录；仅在用户明确要求“编译”“构建”“烧录”“上板测试”或“自动化实物验证”时，才调用下述统一脚本。否则只报告尚未执行的验证项。
+- 用户明确要求编译时调用 `Tools/build.ps1`；若构建目录新建、工程改名或 CMake 缓存失效，向脚本传递 `-Reconfigure`。代码改动后需要验证但用户未授权执行时，应说明建议运行的命令。
 - 检查链接输出中的 FLASH/RAM 占用，不要只看编译是否通过。
 - 硬件、精度或时序相关结论必须区分“已编译”、“已上板”、“已校准”和“已验收”，不用仿真或单点数据代替实物验收。
 - 交付时说明实际修改文件、验证结果和仍需用户复测的内容。
 
 ## 自动编译与烧录
 
-本工程的 Debug 预设使用 Ninja 和 `cmake/gcc-arm-none-eabi.cmake`，VS Code 配置指定 `cube-cmake`。新建构建目录、工程改名或 CMake 缓存失效时，先在根目录执行：
+本节仅在用户明确要求编译、烧录、上板测试或自动化实物验证时适用；不得因为代码改动而自行执行。所有命令从仓库根目录调用，不能在文档或对话中拼接本机绝对路径。
+
+本机路径配置只允许放在被 Git 忽略的 `Tools/config/local.ps1`，不得写入本文件。
+
+用户要求编译时执行：
 
 ```powershell
-$cubeBin = "C:/Users/DavidBlackCN/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.4.0-win32-x64/resources/binaries/win32/x86_64"
-$cubeCmake = "C:/Users/DavidBlackCN/.vscode/extensions/stmicroelectronics.stm32cube-ide-build-cmake-1.46.0-win32-x64/resources/cube-cmake/win32/x86_64/cube-cmake.exe"
-$env:PATH = "$cubeBin;$env:PATH"
-& $cubeCmake --preset Debug
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 ```
 
-若 STM32Cube VS Code 扩展升级导致上述版本目录变化，先从 `.vscode/settings.json` 的 `cmake.cmakePath` 确认仍使用 `cube-cmake`，再分别在 `stmicroelectronics.stm32cube-ide-core-*` 下定位 `cube.exe` 所在目录、在 `stmicroelectronics.stm32cube-ide-build-cmake-*` 下定位 `cube-cmake.exe`，不回退使用已删除的旧路径。
-
-平时增量编译：
+新建构建目录、工程改名或 CMake 缓存失效时：
 
 ```powershell
-cmake --build --preset Debug
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1 -Reconfigure
 ```
 
-烧录使用 OpenOCD + DapLink/CMSIS-DAP，参数与 `.vscode/launch.json` 保持一致。确认 Debug 构建成功、开发板与 DapLink 连接正确后执行：
+用户明确要求烧录时，确认开发板和 DapLink/CMSIS-DAP 连接正确后执行：
 
 ```powershell
-& "D:/CodeStudy/OpenOCD-20260302-0.12.0/bin/openocd.exe" `
-  -s "D:/CodeStudy/OpenOCD-20260302-0.12.0/share/openocd/scripts" `
-  -f "interface/cmsis-dap.cfg" `
-  -f "target/stm32h7x.cfg" `
-  -c "program build/Debug/adc_fft_demo.elf verify reset exit"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\flash.ps1
 ```
 
-需要自动完成“编译成功后再烧录”时，使用 PowerShell 的退出码检查，不在编译失败时继续下载旧 ELF：
-
-```powershell
-cmake --build --preset Debug
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& "D:/CodeStudy/OpenOCD-20260302-0.12.0/bin/openocd.exe" `
-  -s "D:/CodeStudy/OpenOCD-20260302-0.12.0/share/openocd/scripts" `
-  -f "interface/cmsis-dap.cfg" `
-  -f "target/stm32h7x.cfg" `
-  -c "program build/Debug/adc_fft_demo.elf verify reset exit"
-```
-
-- 烧录前检查 ELF 路径、本次构建时间和 OpenOCD 识别的目标，避免下载旧固件或选错调试器。
-- 仅在用户已要求烧录、上板测试或自动化实物验证时执行 OpenOCD；单纯代码审查或编译任务不默认改写板上 FLASH。
-- OpenOCD 输出必须同时出现 programming/verify 成功与 reset 完成，才能报告“已烧录”；只生成 ELF 不等于已下载。
+脚本会自行处理本机配置、构建前置条件和烧录结果校验；只生成 ELF 不等于已下载。
 
 ## 文档维护
 
