@@ -1,3 +1,7 @@
+# 当前主任务：ADC1→IIR→DAC1
+
+当前主程序以 1 MS/s 连续采集 `PA1_C / ADC1_INP1`，经单位直流增益二阶 IIR 低通后输出到 `PA4 / DAC1_OUT1`。DMA 使用 1024 点循环缓冲与同侧空闲半块回写；TIM4/DAC 先于 TIM1/ADC 启动，使回写半块已完整播放，避免半块边界断裂。IIR 状态跨半块保持，PA4 相对 PA1_C 有约 512 µs 流水线延迟；USART1/VOFA+ 当前不启动。ADC 输入必须处于 0 至 3.3 V。
+
 # 开发指南
 
 ## 分层约定
@@ -45,6 +49,36 @@ DAC8830_WriteBoth(32768U);     // 两路直接写 16 bit 码值
 - `DAC_Waveform_Stop()`
 
 波形缓冲区长度为 256 点，输出频率由 `TIM4` 更新触发控制。输出电压限制在 0 到 3.3 V。
+
+## 二阶 IIR 低通
+
+`FML/IIR_FML.*` 使用与参考工程相同的 CMSIS-DSP `arm_biquad_cascade_df1_f32` 路径，复刻下列单位直流增益传递函数：
+
+```text
+                    1
+H(s) = --------------------------------
+       1e-8 s^2 + 3e-4 s + 1
+```
+
+调用 `IIR_Lowpass_Init(&filter, actual_sample_rate_hz)` 时按双线性变换生成系数。参考工程的采样率是 2 MS/s，此时 CMSIS 系数为`[6.203435e-6, 1.240687e-5, 6.203435e-6, 1.9850869, -0.9851118]`，顺序为`b0, b1, b2, a1, a2`。滤波状态在每次`IIR_Lowpass_Process()`后保留，连续 DMA 半块必须复用同一 `iir_lowpass_filter_t`，不要逐块重新初始化。
+
+对于 12 位 offset-binary ADC 到片上 DAC 的缓冲区处理，可使用：
+
+```c
+static iir_lowpass_filter_t filter;
+static q15_t filter_q15_scratch[DMA_HALF_SAMPLES];
+static float32_t filter_float_scratch[DMA_HALF_SAMPLES];
+
+IIR_Lowpass_Init(&filter, IIR_LOWPASS_REFERENCE_SAMPLE_RATE_HZ);
+IIR_Lowpass_ProcessAdc12ToDac12(&filter,
+                                adc_half, dac_half, filter_q15_scratch,
+                                filter_float_scratch,
+                                DMA_HALF_SAMPLES, 2048U, 2048U);
+```
+
+上述 helper 会以 Q15 格式移除 ADC 中点，转换至 float32 完成滤波，再量化为 Q15、恢复 DAC 中点并限制输出到 0～4095。当前主任务已使用`FML/IIR_ADDA_FML.*`把该 helper 接入 ADC1→DAC1：1024 点循环 DMA 分为两个 512 点半块，ADC 完成一半时只写 DAC 的另一半，避免改写 DMA 正在发送的数据。TIM1/TIM4 均为 1 MS/s，滤波状态跨半块保持；输出因此具有一个半块（512 µs）延迟。
+
+上板验证时将调理后的 0～3.3 V 信号接入`PA1_C`，从`PA4 / DAC1_OUT1`观察输出；先用 100 Hz、1 kHz、10 kHz、小于 3 Vpp 且中心为 1.65 V 的正弦，测量输入和输出 Vpp 比，对照本节列出的理论增益。不要在本任务中初始化 AD9226/DCMI、双 ADC 相位采集或 DAC8830；它们与 ADC1、TIM1、PA4、DMA1 Stream0/1 存在资源冲突。
 
 ## ADC + FFT 流程
 

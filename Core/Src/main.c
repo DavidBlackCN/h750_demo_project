@@ -28,7 +28,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "AD9226_API.h"
+#include "IIR_AD_DA_API.h"
 
 /* USER CODE END Includes */
 
@@ -96,14 +96,17 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_USART3_UART_Init();
+  MX_ADC1_Init();
+  MX_DAC1_Init();
+  MX_TIM1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-  if (AD9226_API_Init() != HAL_OK)
+  if (IIR_AD_DA_API_Init() != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE END 2 */
-
+    IIR_AD_DA_API_Process();
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -111,7 +114,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    AD9226_API_Process();
   }
   /* USER CODE END 3 */
 }

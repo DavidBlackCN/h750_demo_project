@@ -1,0 +1,4 @@
+interface:
+  display_name: "STM32H750 IIR数字滤波器"
+  short_description: "实现并验证ADC1到DAC1实时二阶IIR低通滤波链路"
+  default_prompt: "使用 $stm32h750-iir-ad-da-filter 实现或验证 STM32H750 的 ADC1 到 DAC1 二阶 IIR 数字滤波器。"

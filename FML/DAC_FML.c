@@ -13,6 +13,7 @@ __attribute__((section(".dma_buffer"), aligned(32)))
 static uint32_t dac_wave_buffer[DAC_WAVE_BUFFER_LENGTH];
 
 static uint8_t dac_wave_dma_started = 0U;
+static uint32_t dac_wave_channel = DAC_CHANNEL_1;
 static dac_wave_config_t dac_wave_config = {
     DAC_USER_WAVE_SINE,
     1000.0f,
@@ -147,12 +148,18 @@ static HAL_StatusTypeDef dac_wave_set_timer_frequency(float sample_rate_hz)
     return HAL_OK;
 }
 
-HAL_StatusTypeDef DAC_Waveform_Apply(dac_wave_type_t type, float frequency_hz, float vpp, float offset_v)
+HAL_StatusTypeDef DAC_Waveform_StartChannel(uint32_t channel,
+                                             dac_wave_type_t type,
+                                             float frequency_hz,
+                                             float vpp,
+                                             float offset_v)
 {
     HAL_StatusTypeDef status;
     float sample_rate_hz;
 
-    if (frequency_hz <= 0.0f)
+    if ((frequency_hz <= 0.0f) ||
+        ((channel != DAC_CHANNEL_1) && (channel != DAC_CHANNEL_2)) ||
+        ((dac_wave_dma_started != 0U) && (channel != dac_wave_channel)))
     {
         return HAL_ERROR;
     }
@@ -175,7 +182,7 @@ HAL_StatusTypeDef DAC_Waveform_Apply(dac_wave_type_t type, float frequency_hz, f
     if (dac_wave_dma_started == 0U)
     {
         status = HAL_DAC_Start_DMA(&hdac1,
-                                   DAC_CHANNEL_1,
+                                   channel,
                                    dac_wave_buffer,
                                    DAC_WAVE_BUFFER_LENGTH,
                                    DAC_ALIGN_12B_R);
@@ -191,14 +198,20 @@ HAL_StatusTypeDef DAC_Waveform_Apply(dac_wave_type_t type, float frequency_hz, f
         }
 
         dac_wave_dma_started = 1U;
+        dac_wave_channel = channel;
     }
 
     return HAL_OK;
 }
 
+HAL_StatusTypeDef DAC_Waveform_Apply(dac_wave_type_t type, float frequency_hz, float vpp, float offset_v)
+{
+    return DAC_Waveform_StartChannel(DAC_CHANNEL_1, type, frequency_hz, vpp, offset_v);
+}
+
 HAL_StatusTypeDef DAC_Waveform_Start(dac_wave_type_t type, float frequency_hz, float vpp, float offset_v)
 {
-    return DAC_Waveform_Apply(type, frequency_hz, vpp, offset_v);
+    return DAC_Waveform_StartChannel(DAC_CHANNEL_1, type, frequency_hz, vpp, offset_v);
 }
 
 HAL_StatusTypeDef DAC_Waveform_Stop(void)
@@ -207,7 +220,7 @@ HAL_StatusTypeDef DAC_Waveform_Stop(void)
     HAL_StatusTypeDef tim_status;
 
     tim_status = HAL_TIM_Base_Stop(&htim4);
-    dac_status = HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+    dac_status = HAL_DAC_Stop_DMA(&hdac1, dac_wave_channel);
     dac_wave_dma_started = 0U;
 
     return (dac_status == HAL_OK) ? tim_status : dac_status;

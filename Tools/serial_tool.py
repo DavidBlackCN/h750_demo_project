@@ -29,7 +29,7 @@ except ImportError as exc:
 
 
 # 本工程当前 USB 转串口为 CH340（COM6）；DapLink 的 COM8 仅用于 SWD 调试。
-DEFAULT_PORT = "COM6"
+DEFAULT_PORT = "COM11"
 DEFAULT_BAUDRATE = 921600
 READ_TIMEOUT_S = 0.05
 

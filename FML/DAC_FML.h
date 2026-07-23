@@ -28,6 +28,11 @@ typedef struct
 
 HAL_StatusTypeDef DAC_Waveform_Apply(dac_wave_type_t type, float frequency_hz, float vpp, float offset_v);
 HAL_StatusTypeDef DAC_Waveform_Start(dac_wave_type_t type, float frequency_hz, float vpp, float offset_v);
+HAL_StatusTypeDef DAC_Waveform_StartChannel(uint32_t channel,
+                                             dac_wave_type_t type,
+                                             float frequency_hz,
+                                             float vpp,
+                                             float offset_v);
 HAL_StatusTypeDef DAC_Waveform_Stop(void);
 
 const dac_wave_config_t *DAC_Waveform_GetConfig(void);

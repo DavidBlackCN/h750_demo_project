@@ -1,5 +1,12 @@
 # 项目状态
 
+## 当前主任务：ADC1→IIR→DAC1（2026-07-23）
+
+- ADC1 `PA1_C / ADC1_INP1` 由 TIM1_TRGO 以 1 MS/s 触发，1024 点循环 DMA 的半传输和全传输回调各处理 512 点；移除 2048 中点后按单位直流增益二阶 IIR 低通，恢复 DAC 中点后写入 DAC1_CH1 `PA4` 的同侧空闲半块，由 TIM4_TRGO 以 1 MS/s 连续输出。IIR 状态跨半块保持。TIM4/DAC 先于 TIM1/ADC 启动，确保回写半块已被 DAC 完整消费。
+- DAC1_CH1 的 DMA 使用 halfword 数据宽度和 very-high 总线优先级，IIR 输出 DMA 缓冲区同步为 `uint16_t`；该配置与参考 AD→DA 任务对齐。
+- IIR 数据路径按参考代码改为 `ADC码 → Q15去中点 → float32 DF1 → Q15量化 → DAC码`；为保持当前传递函数的单位直流增益，输出中点恢复为 2048，未采用参考工程的 `2048 - 25` 校准偏移。
+- 本任务只启动 GPIO、DMA、ADC1、DAC1、TIM1、TIM4；USART1、AD9226/DCMI、ADC2 与 DAC1_CH2 均不启动。PB6/PB7 不参与当前任务。
+
 更新时间：2026-07-22
 
 ## 已验证
@@ -31,13 +38,13 @@
   - `HDL/DAC8830_DMA.c`
   - `HDL/DAC8830_SPI.h`
   - `HDL/DAC8830_SPI.c`
+- 二阶 IIR 低通与 ADC→DAC 主任务已编译、烧录并上板验证：`FML/IIR_FML.*`按双线性变换复刻`1 / (1e-8 s² + 3e-4 s + 1)`；`FML/IIR_ADDA_FML.*`使用 ADC1/DAC1 的 1024 点循环 DMA、同侧空闲半块回写和 D-Cache 维护，以 1 MS/s 运行。修复前版本已实测 1 kHz 交流增益接近理论值但出现严重可见失真；修复后 1 kHz PA4 原生 Vpp 重复读数标准差降至约 0.011 V，长窗波形导出仍受 USB 二进制块截断限制。
 
 ## 当前主程序行为
 
-- 当前主任务为 AD9226 验证 demo，仅启动 GPIO、DMA 和 USART3；AD9226 驱动内部初始化 DCMI、DMA2 Stream1 和 TIM1_CH1。
-- CPU 主频为 480 MHz、AXI/AHB 为 240 MHz，`main.c` 显式开启 I/D Cache。DCMI DMA 与 USART3 TX DMA 缓冲区位于 `.dma_buffer` / RAM_D2，并执行 Cache 维护。
-- PA8 输出 1 MHz、50% 占空比采样时钟；每帧通过 12 位 DCMI 采集 4096 点。分析链路只接受周期约为 800～1200 点的输入，即当前主要面向约 1 kHz 正弦验证。
-- USART3 使用 PB10/PB11、115200 8N1，以约 10 Hz 输出频率、THD、U1～U5、原始码极值和均值。USART1 在 `.ioc` 中临时改至 PA9/PA10，不由主任务初始化。
+- 当前主任务已恢复为 ADC→IIR→DAC demo，仅启动 GPIO、DMA、ADC1、DAC1、TIM1 和 TIM4；不初始化 AD9226、DCMI、USART、SPI 或 ADC2。
+- ADC1 使用 PA1_C / ADC1_INP1、12 bit、TIM1_TRGO、1 MS/s、DMA1 Stream0 循环 DMA；DAC1_CH1 从 PA4 输出，由 TIM4_TRGO、DMA1 Stream1 的循环 DMA以同样的 1 MS/s 更新。DAC1_CH2 / PA5 与 DMA1 Stream2 保留给独立自检，不在当前主任务启动。
+- DMA 缓冲区长 1024 点。ADC DMA 半传输/全传输回调各处理 512 点：将已完成的 ADC 半块移除 2048 中点后滤波，写入 DAC 已播放完毕的同侧半块，清理 D-Cache 后交给 DMA；IIR 状态不在块间重置，输出处理延迟约为一个完整 DMA 缓冲区（1.024 ms）。2026-07-22 已重新烧录本主任务，待将示波器 CH1 从 PA5 移回 PA4 后复测。
 
 ## 已实现模块
 
@@ -53,6 +60,9 @@
 - `FML/ADC_FML.*`：双ADC同步DMA缓冲、校准、帧重启、回调状态和DCache维护。
 - `FML/FFT_FML.*`：4096 点 FFT、窗函数、峰值和相位基础计算。
 - `FML/FREQ_FML.*`：TIM2 输入捕获自动量程、低频中断、高频 DMA、DCache 维护、超时和频率结果。
+- `FML/IIR_FML.*`：基于 CMSIS-DSP DF1 双二阶的单位增益二阶低通；系数随实际采样率初始化，状态跨数据块保持。
+- `FML/IIR_ADDA_FML.*`：当前主任务的 ADC1→IIR→DAC1 DMA 调度、ADC/DAC 定时器配置、DMA 缓冲区及 D-Cache 维护。
+- `API/IIR_AD_DA_API.*`：IIR ADC→DAC 主任务启动入口。
 - `BLL/FFT_BLL.*`：FFT 结果结构体和主峰/次峰插值频率。
 - `BLL/PHASE_BLL.*`：公共频率细化、双通道正弦拟合、三角波谐波识别与亚采样互相关时延、相位差和校准补偿。
 - `BLL/ADS8688_BLL.*`：ADS8688 16 bit 原始码到伏特值的量程换算。
@@ -69,8 +79,8 @@
 
 | 功能 | 引脚 | 说明 |
 | --- | --- | --- |
-| USART1_TX | PA9 | AD9226 任务下临时映射；主任务不初始化 |
-| USART1_RX | PA10 | AD9226 任务下临时映射；主任务不初始化 |
+| USART1_TX | PB6 | 当前 ADC→VOFA+ 任务输出；与 AD9226 D5 复用 |
+| USART1_RX | PB7 | 当前 ADC→VOFA+ 任务输入；与 AD9226 VSYNC 复用 |
 | USART3_TX | PB10 | AD9226 摘要输出，115200 baud |
 | USART3_RX | PB11 | 当前未使用 |
 | AD9226_D0～D3 | PC6/PC7/PC8/PC9 | DCMI 12 位数据低四位 |
@@ -89,6 +99,7 @@
 | ADC1_INP1 | PA1_C | ADC1 采样输入 |
 | ADC2_INP7 | PA7 | ADC2 采样输入；相位demo中使用 |
 | DAC1_OUT1 | PA4 | 片上 DAC1 CH1 输出 |
+| DAC1_OUT2 | PA5 | 片上 DAC1 CH2 输出；当前 DAC2 自检使用，与 DAC8830 的 SPI1_SCK 复用 |
 | AD9833_CS / FSYNC | PA1 | AD9833 软件 SPI 片选 |
 | AD9833_SDA | PH4 | AD9833 软件 SPI 数据 |
 | AD9833_SCK | PH5 | AD9833 软件 SPI 时钟 |
@@ -110,9 +121,10 @@
 ## 待确认
 
 - AD9226 目前仅完成编译验证。上板后需先确认 PA8/PA6 均为 1 MHz 时钟，再检查 12 根数据线位序、静态输入码、1 kHz 正弦的 `min/max/mean`，最后验收频率和 THD。
+- IIR ADC→DAC 链路已完成 1 kHz 双通道实测：PA1_C 约 1.167 Vpp，PA4 约 0.603 Vpp，对应增益约 0.517，而理论值约 0.505。DMA 同侧空闲半块回写修复已烧录；修复后 PA4 的 9 次原生 Vpp 为 0.587～0.620 V，标准差约 0.011 V，频率约 999～1016 Hz，未再出现此前单次 1.133 Vpp 的明显离群读数。短窗 BYTE 波形导出成功但不用于幅值验收；覆盖完整 1.024 ms DMA 周期的长窗导出因 USB 二进制块截断失败。仍待复测 100 Hz、10 kHz、延迟、削顶、半块交界连续性及 ADC DMA 错误计数。
 - AD9226 与 AD9910 共用 PA6/PA8，与片上 DAC 共用 PA4，与原板载 USART1 共用 PB6/PB7，并占用 TIM1；当前主任务不得同时初始化这些模块。切换回其他 demo 时需恢复对应 `.ioc` 引脚和 TIM1 配置。
 - ADS8688 demo 目前只是“已编译”，需要用 CH1 实际电压完成通信、零点、正负满量程和 VOFA+ 波形验收。
-- `.ioc` 当前以 AD9226 主任务为准，已同步 DCMI 12 位数据总线、TIM1_CH1 PWM、DMA2 Stream1、USART3 TX DMA 和 PA9/PA10 USART1 临时映射。切换回双 ADC、片上 DAC、AD9910 或板载 USART1 任务时必须恢复相应冲突配置。
+- `.ioc` 当前以 IIR ADC→DAC 主任务为准：ADC1 已改为 12 bit、循环 DMA、DMA1 Stream0 半字宽和 very-high 优先级，TIM1_TRGO 改为 UPDATE；本次 DAC2 自检在生成代码中手工增加 PA5、DAC1_CH2 和 DMA1 Stream2，尚未回写 `.ioc`。切换回双 ADC、AD9226、片上 DAC 波形、AD9910 或板载 USART1 任务时必须恢复相应冲突配置。
 - VOFA+ FireWater 依赖换行分帧，不应在同一 UART 中插入其他日志，否则会增加无关通道或造成解析干扰。
 
 - 方波测频尚未用实物信号源覆盖验证 1 Hz、频段切换点、10 kHz 分辨率切换点和 1 MHz 上限；应重点观察串口 `raw`、`mode`、`ticks` 和 `periods`。

@@ -1,0 +1,4 @@
+﻿interface:
+  display_name: "ADC采集信号测试"
+  short_description: "指定 ADC 循环采集并输出 FireWater 到 VOFA+"
+  default_prompt: "使用 $adc-signal-capture-test 将指定 ADC 引脚循环采集并通过 FireWater 输出到 VOFA+。"
