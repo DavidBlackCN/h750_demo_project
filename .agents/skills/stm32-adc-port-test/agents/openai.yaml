@@ -1,0 +1,4 @@
+interface:
+  display_name: "ADC端口预设"
+  short_description: "一次性定时器触发ADC DMA采集并发送VOFA+"
+  default_prompt: "使用 $stm32-adc-port-test 执行 ADC 端口预设，采样率 100 kHz。"
