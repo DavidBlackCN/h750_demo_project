@@ -52,6 +52,7 @@ description: 通过 econtest-bench-mcp 的 USB/VISA 工具安全控制 SIGLENT S
 - `scope_control`
 - `scope_measure_simple`
 - `scope_capture_waveform`
+- `scope_screenshot`
 
 跨设备：
 
@@ -116,9 +117,9 @@ description: 通过 econtest-bench-mcp 的 USB/VISA 工具安全控制 SIGLENT S
 
 读取 [evidence.md](references/evidence.md)，并用 `scripts/validate_evidence.py` 校验完整证据。
 
-## PNG 截图 TODO
+## PNG 截图
 
-当前固件上的 `PRIN? BMP/PNG` 通过 USB-VISA 超时。不要调用或虚构截图工具，不要把波形二进制文件说成 PNG。只有 MCP 工具列表出现经验证的截图工具且 [device-support.md](references/device-support.md) 已更新后，才使用截图能力。
+仅对 SDS2502X Plus `5.0.0.1.6.2R5`，可调用 `scope_screenshot` 只读保存当前面板 PNG。它不切换 RUN/STOP、不操作信号源，返回经 CRC 校验的尺寸、文件路径、截图前后状态和截图后身份复核。截图用于面板/形状/触发诊断，不取代 `scope_measure_simple` 的原生验收值。其他型号或旧固件仍先读取 [device-support.md](references/device-support.md) 确认支持状态。
 
 ## 禁止事项
 
