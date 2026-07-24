@@ -28,7 +28,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "IIR_AD_DA_API.h"
+#include "AD9833_API.h"
+#include "DLIA_API.h"
+#include "DPLL_API.h"
 
 /* USER CODE END Includes */
 
@@ -97,16 +99,24 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_ADC1_Init();
-  MX_DAC1_Init();
+  MX_ADC2_Init();
   MX_TIM1_Init();
-  MX_TIM4_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  if (IIR_AD_DA_API_Init() != HAL_OK)
+  if (AD9833_API_StartSine(AD9833_API_DEMO_FREQUENCY_HZ,
+                           DPLL_API_INITIAL_PHASE_COMMAND_DEG) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (DLIA_API_Init() != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (DPLL_API_Init() != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE END 2 */
-    IIR_AD_DA_API_Process();
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -114,6 +124,17 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    float phase_difference_deg;
+
+    DPLL_API_ProcessUart();
+    DLIA_API_Process();
+    if (DLIA_API_TakeValidPhase(&phase_difference_deg))
+    {
+      if (DPLL_API_ProcessPhase(phase_difference_deg) != HAL_OK)
+      {
+        Error_Handler();
+      }
+    }
   }
   /* USER CODE END 3 */
 }

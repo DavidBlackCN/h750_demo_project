@@ -1,6 +1,6 @@
 # STM32H750 电赛信号题模板项目
 
-当前主任务为 ADC1→IIR→DAC1：ADC1（PA1_C）以 1 MS/s 采样，经二阶 IIR 低通后输出至 DAC1_CH1（PA4）；DMA、定时器与滤波状态连续运行，USART1 不启动。
+当前主任务为 AD9833 数字 PI 锁相 demo：ADC1/ADC2 同步鉴相后，每 10 ms更新 AD9833 的 PHASE0；不启动 DAC。
 
 这是一个面向电子设计竞赛信号题的 STM32H750 模板工程，目标是把常用的信号产生、采集、频谱分析和串口调试能力提前搭好，后续按题目要求快速组合业务逻辑。
 
@@ -14,8 +14,9 @@
 - STM32H750 片上 DAC 波形输出：TIM4 触发 DAC1 CH1 DMA，支持正弦、方波、三角波、锯齿波、直流。
 - ADC1 + ADC2 双重规则同步采样：频率测量帧以1 MS/s同时触发`PA1_C / ADC1_INP1`和`PA7 / ADC2_INP7`，相位帧根据测得频率自动调整TIM1分频和采样点数。
 - CMSIS-DSP FFT：4096 点 FFT，支持汉宁窗、主峰/次峰、频率、幅值、Vpp、相位估计。
-- 二阶 IIR 低通：基于 CMSIS-DSP DF1 双二阶实现，复刻`1 / (1e-8 s² + 3e-4 s + 1)`；当前 ADC→DAC 主任务以 1 MS/s 运行，也可按实际采样率重新初始化。
+- 二阶 IIR 低通：基于 CMSIS-DSP DF1 双二阶实现，复刻`1 / (1e-8 s² + 3e-4 s + 1)`；保留 ADC→DAC demo，可按实际采样率重新初始化。
 - 双正弦相位差：覆盖 1 kHz 到 100 kHz，FFT 粗定位后使用公共频率正弦拟合，并预留多频点相位校准表。
+- 数字锁相鉴相器与 PI 环：`BLL/DLIA_BLL.*` 从 512 点同步双 ADC 码流提取相位差；`BLL/DPLL_BLL.*`将滤波相位转换为 PI 相位校正，并写入 AD9833 PHASE0。
 - 方波频率测量：PA0 / TIM2_CH1 输入捕获，覆盖 1 Hz 到 1 MHz；低频使用捕获中断，高频使用 `/8` 捕获 DMA，输出分辨率分别为 0.5 Hz 和 10 Hz。
 - 淘晶驰串口屏：USART3（PB10/PB11）115200 8N1，支持文本/数值刷新和触摸命令回传；USART1 保留为 USB 调试串口。
 
@@ -34,7 +35,7 @@
 
 ## 默认启动流程
 
-`Core/Src/main.c` 当前运行 ADC→IIR→DAC。上电后启动 ADC1 与 DAC1_CH1 的 1024 点循环 DMA，TIM1/TIM4 均按 1 MS/s 更新；ADC DMA 的半传输和全传输回调各处理 512 点，滤波结果写入 DAC 已播放完成的半缓冲区。当前不启动 AD9226、DCMI、USART 或其他 demo。
+`Core/Src/main.c` 当前运行 AD9833 数字 PI 锁相 demo。上电后将 AD9833 FREQ0 配置为 10 kHz、PHASE0 配置为 0°、输出模式配置为正弦；TIM1_TRGO 同步采集 ADC1/ADC2，内部原始相位为`ADC2-ADC1`，进入 PI 前转换为示波器标准`CH2-CH1`，每 10 ms更新 PHASE0。当前不启动 DAC、AD9226 或 DCMI。
 
 ## 构建
 
@@ -53,12 +54,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 - USART3：PB10 TX、PB11 RX，115200 baud，当前用于 AD9226 摘要输出。
 - AD9226：D0～D11 使用 PC6/PC7/PC8/PC9/PE4/PB6/PE5/PE6/PC10/PC12/PB5/PD2，PA8 输出 1 MHz CLK 并回接 PA6/PIXCLK，PB1→PA4、PB2→PB7 为 DCMI 同步门控回路。
 - 方波测频：PA0 / TIM2_CH1，上升沿输入捕获；TIM2 时钟当前为 75 MHz，DMA 使用 DMA1 Stream5。
-- ADC1：PA1_C / ADC1_INP1，当前 IIR demo 的 12 位单通道输入，TIM1_TRGO 触发、1 MS/s、循环 DMA。
+- ADC1：PA1_C / ADC1_INP1；当前数字锁相鉴相 demo 中与 ADC2 同步、TIM1_TRGO 触发、约 1 MS/s、两路均为 10 bit、512 点 normal DMA。
 - ADC2：PA7 / ADC2_INP7，双 ADC 从机通道；与DAC8830的SPI1_MOSI复用，不能同时运行。
 - 当前 CubeMX 生成时钟：CPU 480 MHz、AXI/AHB 240 MHz；其他会变的时钟和资源事实见 `STATUS.md`。
-- 片上 DAC1：PA4 / DAC1_OUT1，当前 IIR demo 使用 TIM4_TRGO、1 MS/s、1024 点循环 DMA；输出相对输入有一个 512 点处理缓冲延迟。
+- 片上 DAC1：PA4 / DAC1_OUT1；保留 IIR demo 使用 TIM4_TRGO、1 MS/s、1024 点循环 DMA，当前主任务不启动。
 - ADC 采样：IIR demo 使用 12 bit、TIM1 TRGO、循环 DMA；保留的双 ADC 测频/相位代码使用其原有 16 bit、normal DMA 配置，切换回该任务时须恢复对应 `.ioc` 配置。
-- AD9833：`CS=PA1`、`SDA=PH4`、`SCK=PH5`。
+- AD9833：`FSYNC/CS=PA1`、`SDATA=PH4`、`SCLK=PH5`。本板封装中 PA1 与 PA1_C 是独立焊盘；ADC1 使用 PA1_C，ADC 直连开关保持打开即可与 PA1 的 AD9833 片选并存。
 - AD9910：见 `Core/Inc/main.h` 中 `MRT/PF0/PF1/PF2/IUP/CSN/SDI/SCK9` 宏。
 - DAC8830：默认 `CS1=PE2`、`CS2=PE0`、`SDI=PA7/SPI1_MOSI`、`SCLK=PA5/SPI1_SCK`；当前 DMA demo 使用 TIM4 产生 2.5 MS/s 更新节拍。
 - ADS8688：`CS=PB12`、`RST_PD=PC4`、`SCK=PB13/SPI2_SCK`、`SDO=PB14/SPI2_MISO`、`SDI=PB15/SPI2_MOSI`；SPI Mode 1，SCK 17 MHz。

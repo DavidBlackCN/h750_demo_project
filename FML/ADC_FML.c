@@ -178,6 +178,33 @@ static void adc_dual_apply_timer_divider(uint32_t divider)
     htim1.Instance->EGR = TIM_EGR_UG;
 }
 
+static HAL_StatusTypeDef adc_dual_configure_cdr_dma(void)
+{
+    DMA_HandleTypeDef *dma_handle = hadc1.DMA_Handle;
+
+    if (dma_handle == NULL)
+    {
+        return HAL_ERROR;
+    }
+
+    if (HAL_DMA_DeInit(dma_handle) != HAL_OK)
+    {
+        return HAL_ERROR;
+    }
+
+    dma_handle->Init.Request = DMA_REQUEST_ADC1;
+    dma_handle->Init.Direction = DMA_PERIPH_TO_MEMORY;
+    dma_handle->Init.PeriphInc = DMA_PINC_DISABLE;
+    dma_handle->Init.MemInc = DMA_MINC_ENABLE;
+    dma_handle->Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
+    dma_handle->Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
+    dma_handle->Init.Mode = DMA_NORMAL;
+    dma_handle->Init.Priority = DMA_PRIORITY_VERY_HIGH;
+    dma_handle->Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+
+    return HAL_DMA_Init(dma_handle);
+}
+
 void ADC_Dual_SetDiscoverySampling(void)
 {
     uint32_t timer_clock_hz = adc_dual_timer_clock_hz();
@@ -272,6 +299,7 @@ HAL_StatusTypeDef ADC_Dual_StartCaptureLength(uint32_t sample_count)
 {
     HAL_StatusTypeDef status;
     static uint8_t calibrated = 0U;
+    static uint8_t cdr_dma_configured = 0U;
 
     (void)HAL_TIM_Base_Stop(&htim1);
 
@@ -317,6 +345,16 @@ HAL_StatusTypeDef ADC_Dual_StartCaptureLength(uint32_t sample_count)
     if ((sample_count == 0U) || (sample_count > ADC1_DMA_BUFFER_LENGTH))
     {
         return HAL_ERROR;
+    }
+
+    if (cdr_dma_configured == 0U)
+    {
+        status = adc_dual_configure_cdr_dma();
+        if (status != HAL_OK)
+        {
+            return status;
+        }
+        cdr_dma_configured = 1U;
     }
 
     adc1_half_flag = 0U;

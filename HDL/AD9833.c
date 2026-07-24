@@ -1,6 +1,7 @@
 #include "AD9833.h"
 
-#define AD9833_FCLK_HZ      10000000.0f
+/* Board-fitted AD9833 master oscillator frequency. */
+#define AD9833_FCLK_HZ      25000000.0f
 #define AD9833_FREQ_RATIO   (268435456.0f / AD9833_FCLK_HZ)
 
 unsigned char AD9833_Init(void)

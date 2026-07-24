@@ -1,13 +1,12 @@
 # 项目状态
 
-## 当前主任务：ADC1→IIR→DAC1（2026-07-23）
+## 当前主任务：AD9833 数字 PI 锁相 demo（2026-07-24）
 
-- ADC1 `PA1_C / ADC1_INP1` 由 TIM1_TRGO 以 1 MS/s 触发，1024 点循环 DMA 的半传输和全传输回调各处理 512 点；移除 2048 中点后按单位直流增益二阶 IIR 低通，恢复 DAC 中点后写入 DAC1_CH1 `PA4` 的同侧空闲半块，由 TIM4_TRGO 以 1 MS/s 连续输出。IIR 状态跨半块保持。TIM4/DAC 先于 TIM1/ADC 启动，确保回写半块已被 DAC 完整消费。
-- DAC1_CH1 的 DMA 使用 halfword 数据宽度和 very-high 总线优先级，IIR 输出 DMA 缓冲区同步为 `uint16_t`；该配置与参考 AD→DA 任务对齐。
-- IIR 数据路径按参考代码改为 `ADC码 → Q15去中点 → float32 DF1 → Q15量化 → DAC码`；为保持当前传递函数的单位直流增益，输出中点恢复为 2048，未采用参考工程的 `2048 - 25` 校准偏移。
-- 本任务只启动 GPIO、DMA、ADC1、DAC1、TIM1、TIM4；USART1、AD9226/DCMI、ADC2 与 DAC1_CH2 均不启动。PB6/PB7 不参与当前任务。
+- `API/AD9833_API.*`在启动时写入 AD9833 的 FREQ0=10 kHz、PHASE0=0°和正弦输出模式，再释放 RESET；板载 AD9833 的 FCLK 常量为 25 MHz，后续相位更新只写 PHASE0。
+- `API/DLIA_API.*`以约1 MS/s同步采样 ADC1 `PA1_C / ADC1_INP1`（信号发生器/示波器CH2）和 ADC2 `PA7 / ADC2_INP7`（AD9833/示波器CH1），原始相位为`ADC2-ADC1=CH1-CH2`。`API/DPLL_API.*`在进入 PI 前取反为示波器标准`CH2-CH1`，每10 ms在前台写 AD9833 PHASE0；默认目标0°、Kp=0.10、Ki=0.050、相位校准0°，初始相位命令180°。积分相位按360°环绕而非钳位，以补偿独立时钟频差。
+- 本任务启动 GPIO、DMA、ADC1、ADC2、TIM1、USART1和 AD9833 软件 SPI；PA1 是 AD9833 FSYNC/CS，PH4 是 SDATA，PH5 是 SCLK。DAC、TIM4、AD9226/DCMI和 SPI 外设不启动。AD9833输出送入 ADC2 前仍须经跟随、1.65 V偏置和0~3.3 V限幅。
 
-更新时间：2026-07-22
+更新时间：2026-07-24
 
 ## 已验证
 
@@ -42,9 +41,8 @@
 
 ## 当前主程序行为
 
-- 当前主任务已恢复为 ADC→IIR→DAC demo，仅启动 GPIO、DMA、ADC1、DAC1、TIM1 和 TIM4；不初始化 AD9226、DCMI、USART、SPI 或 ADC2。
-- ADC1 使用 PA1_C / ADC1_INP1、12 bit、TIM1_TRGO、1 MS/s、DMA1 Stream0 循环 DMA；DAC1_CH1 从 PA4 输出，由 TIM4_TRGO、DMA1 Stream1 的循环 DMA以同样的 1 MS/s 更新。DAC1_CH2 / PA5 与 DMA1 Stream2 保留给独立自检，不在当前主任务启动。
-- DMA 缓冲区长 1024 点。ADC DMA 半传输/全传输回调各处理 512 点：将已完成的 ADC 半块移除 2048 中点后滤波，写入 DAC 已播放完毕的同侧半块，清理 D-Cache 后交给 DMA；IIR 状态不在块间重置，输出处理延迟约为一个完整 DMA 缓冲区（1.024 ms）。2026-07-22 已重新烧录本主任务，待将示波器 CH1 从 PA5 移回 PA4 后复测。
+- 当前主任务运行 AD9833 数字 PI 锁相 demo。启动 AD9833 FREQ0=10 kHz、PHASE0=0°后，`DLIA_API`以双ADC normal DMA测量`ADC2-ADC1=CH1-CH2`，`DPLL_API`取反为`CH2-CH1`并每10 ms使用滤波相位更新 PHASE0。积分相位按360°环绕；PI 更新不在 DMA 回调执行。已于2026-07-24编译、烧录，闭环复验待重新测量。
+- USART1已加入非阻塞运行时 PI 命令：仅`kp`、`ki`和只读`show`。每次命令仅回传一次`dpll`摘要；当前 PI 主任务关闭原`phase=...`周期诊断，Kp/Ki仅存于 RAM，复位恢复编译期默认值。
 
 ## 已实现模块
 
@@ -61,10 +59,12 @@
 - `FML/FFT_FML.*`：4096 点 FFT、窗函数、峰值和相位基础计算。
 - `FML/FREQ_FML.*`：TIM2 输入捕获自动量程、低频中断、高频 DMA、DCache 维护、超时和频率结果。
 - `FML/IIR_FML.*`：基于 CMSIS-DSP DF1 双二阶的单位增益二阶低通；系数随实际采样率初始化，状态跨数据块保持。
-- `FML/IIR_ADDA_FML.*`：当前主任务的 ADC1→IIR→DAC1 DMA 调度、ADC/DAC 定时器配置、DMA 缓冲区及 D-Cache 维护。
+- `FML/IIR_ADDA_FML.*`：保留的 ADC1→IIR→DAC1 DMA 调度、ADC/DAC 定时器配置、DMA 缓冲区及 D-Cache 维护。
 - `API/IIR_AD_DA_API.*`：IIR ADC→DAC 主任务启动入口。
+- `API/DLIA_API.*`：当前数字锁相鉴相 demo 的双 ADC 帧调度、CDR 解包、相位摘要输出与重启入口。
 - `BLL/FFT_BLL.*`：FFT 结果结构体和主峰/次峰插值频率。
 - `BLL/PHASE_BLL.*`：公共频率细化、双通道正弦拟合、三角波谐波识别与亚采样互相关时延、相位差和校准补偿。
+- `BLL/DLIA_BLL.*`：512 点共享 DDS 的双通道 IQ 鉴相器；`Tests/dlia_bll_selftest.c`提供合成 12 bit 数据的离线精度自检。
 - `BLL/ADS8688_BLL.*`：ADS8688 16 bit 原始码到伏特值的量程换算。
 - `API/ADC_API.*`：ADC 数据处理、FFT 计算和串口输出入口。
 - `API/FFT_API.*`：独立 FFT 输出入口，当前主循环未直接调用。
@@ -116,7 +116,7 @@
 | DAC8830_SDI | PA7 / SPI1_MOSI | DAC8830 硬件 SPI 数据 |
 | DAC8830_SCLK | PA5 / SPI1_SCK | DAC8830 硬件 SPI 时钟 |
 
-注意：`AD9833_CS / FSYNC` 当前使用 PA1，而 ADC1 输入也配置为 PA1_C。H750 的 PA1/PA1_C 模拟开关配置需要结合实物接线确认，若两者同时使用需优先排查引脚冲突。
+注意：本板封装的`AD9833_CS / FSYNC=PA1`与`ADC1_INP1=PA1_C`是独立焊盘，可同时使用；ADC 初始化须保持`SYSCFG_SWITCH_PA1`打开，使 PA1_C 直连 ADC，而 PA1 保持普通 GPIO。
 
 ## 待确认
 
@@ -124,7 +124,7 @@
 - IIR ADC→DAC 链路已完成 1 kHz 双通道实测：PA1_C 约 1.167 Vpp，PA4 约 0.603 Vpp，对应增益约 0.517，而理论值约 0.505。DMA 同侧空闲半块回写修复已烧录；修复后 PA4 的 9 次原生 Vpp 为 0.587～0.620 V，标准差约 0.011 V，频率约 999～1016 Hz，未再出现此前单次 1.133 Vpp 的明显离群读数。短窗 BYTE 波形导出成功但不用于幅值验收；覆盖完整 1.024 ms DMA 周期的长窗导出因 USB 二进制块截断失败。仍待复测 100 Hz、10 kHz、延迟、削顶、半块交界连续性及 ADC DMA 错误计数。
 - AD9226 与 AD9910 共用 PA6/PA8，与片上 DAC 共用 PA4，与原板载 USART1 共用 PB6/PB7，并占用 TIM1；当前主任务不得同时初始化这些模块。切换回其他 demo 时需恢复对应 `.ioc` 引脚和 TIM1 配置。
 - ADS8688 demo 目前只是“已编译”，需要用 CH1 实际电压完成通信、零点、正负满量程和 VOFA+ 波形验收。
-- `.ioc` 当前以 IIR ADC→DAC 主任务为准：ADC1 已改为 12 bit、循环 DMA、DMA1 Stream0 半字宽和 very-high 优先级，TIM1_TRGO 改为 UPDATE；本次 DAC2 自检在生成代码中手工增加 PA5、DAC1_CH2 和 DMA1 Stream2，尚未回写 `.ioc`。切换回双 ADC、AD9226、片上 DAC 波形、AD9910 或板载 USART1 任务时必须恢复相应冲突配置。
+- `.ioc` 的 ADC1 初始 DMA 仍是半字循环模式，但当前鉴相 demo 在运行时明确覆盖为双 ADC 公共 CDR 的字宽 normal DMA。PA1 和 PA1_C 是本板封装的独立焊盘：前者保留 AD9833-CS GPIO，后者为 ADC1_INP1 专用模拟直连输入。本次 DAC2 自检在生成代码中手工增加 PA5、DAC1_CH2 和 DMA1 Stream2，尚未回写 `.ioc`；后续生成代码前需在 CubeMX 中核对这些运行时覆盖项。
 - VOFA+ FireWater 依赖换行分帧，不应在同一 UART 中插入其他日志，否则会增加无关通道或造成解析干扰。
 
 - 方波测频尚未用实物信号源覆盖验证 1 Hz、频段切换点、10 kHz 分辨率切换点和 1 MHz 上限；应重点观察串口 `raw`、`mode`、`ticks` 和 `periods`。
