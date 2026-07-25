@@ -1,10 +1,12 @@
 # 项目状态
 
-## 当前主任务：AD9833 数字 PI 锁相 demo（2026-07-24）
+## 当前主任务：独立 ADC2 采集链路（2026-07-25）
 
-- `API/AD9833_API.*`在启动时写入 AD9833 的 FREQ0=10 kHz、PHASE0=0°和正弦输出模式，再释放 RESET；板载 AD9833 的 FCLK 常量为 25 MHz，后续相位更新只写 PHASE0。
-- `API/DLIA_API.*`以约1 MS/s同步采样 ADC1 `PA1_C / ADC1_INP1`（信号发生器/示波器CH2）和 ADC2 `PA7 / ADC2_INP7`（AD9833/示波器CH1），原始相位为`ADC2-ADC1=CH1-CH2`。`API/DPLL_API.*`在进入 PI 前取反为示波器标准`CH2-CH1`，每10 ms在前台写 AD9833 PHASE0；默认目标0°、Kp=0.10、Ki=0.050、相位校准0°，初始相位命令180°。积分相位按360°环绕而非钳位，以补偿独立时钟频差。
-- 本任务启动 GPIO、DMA、ADC1、ADC2、TIM1、USART1和 AD9833 软件 SPI；PA1 是 AD9833 FSYNC/CS，PH4 是 SDATA，PH5 是 SCLK。DAC、TIM4、AD9226/DCMI和 SPI 外设不启动。AD9833输出送入 ADC2 前仍须经跟随、1.65 V偏置和0~3.3 V限幅。
+- `FML/ADC2_CAPTURE_FML.*`、`BLL/ADC2_CAPTURE_BLL.*` 和 `API/ADC2_CAPTURE_API.*`按参考工程的 `MY_ADC2_Init()`、`adc2_deal()`、`adc2_proc()` 分层建立独立链路。ADC2 为 `PA7 / ADC2_INP7`；TIM1_TRGO 使用 240 MHz 计数时钟、PSC=0、ARR=239，目标/实际采样率均为 1 MS/s；ADC2 使用 10 bit、8.5 周期采样时间、无过采样。
+- 新增可选 `API/SUPER_FFT.*`：ADC3 (`PC2_C / ADC3_INP0`) 通过 DMA1 Stream3 单帧采集 4096 点，并使用独立的 TIM6_TRGO，不再占用 TIM1。测频沿用参考工程“400 kS/s 高频粗测→40 kS/s 低频 FFT 粗测→1 Hz 步进细扫”的流程；TIM6 的 PSC/ARR 按实际 APB1 定时器时钟计算。DMA 缓冲区位于 RAM_D2、32 字节对齐，前后台维护 D-Cache，回调只置完成标志。该模块尚未接入 `main.c`，不得与 ADC3 的 VOFA 预设同时运行。`Core/Src/adc.c` 中 ADC3 的手工触发源改为 `ADC_EXTERNALTRIG_T6_TRGO`，与当前 `.ioc` 可能不一致，后续 CubeMX 重新生成前须恢复此配置。
+- 本任务启动 GPIO、DMA、ADC2、TIM1 和 USART1。DMA1 Stream1 服务 ADC2，为 halfword、very-high、normal DMA，写入 `.dma_buffer` / RAM_D2 的 32 字节对齐 1024 点缓冲区。DMA 完成回调只置 `adc2_deal_flag`；前台 `adc2_proc()` 调用 `adc2_deal()`，失效 D-Cache、按 10 bit 换算 0～3.3 V、停止 ADC DMA，再以 USART1 `PB6/PB7`、921600 8N1 逐行发送 1024 个 `%.5f` 电压值。PA7 已配置为 analog 模式。进入 `while` 前还会启动 AD9833、AD9910 的 1 kHz 正弦输出。AD9910 将 PA8 配置为软件 SCK，故 TIM1_CH1 外部输出不可用，但 ADC2 使用的内部 TIM1_TRGO 不受影响。`ADC_VOFA_API_Process()` 的 ADC3 预设实现保留，但当前主任务不调用。ADC1、ADC3、DAC、TIM4、AD9226/DCMI、SPI 和 USART3 不启动。
+- ADC 时序预算：1 MS/s 对应 80 个 ADC 时钟周期；10 bit 转换的采样 8.5 周期加转换周期低于该预算，因此满足当前采样率。实际前端阻抗仍可能要求更长采样时间。
+- ADC2 的 PA7、独立 DMA1 Stream1 及 TIM1_TRGO 配置是当前 ADC端口预设的基础；尚未重新生成 CubeMX 代码，后续重新生成前必须在 `.ioc` 中复现 ADC2 的独立、TIM1_TRGO、normal DMA 设置。
 
 更新时间：2026-07-24
 
@@ -41,7 +43,8 @@
 
 ## 当前主程序行为
 
-- 当前主任务运行 AD9833 数字 PI 锁相 demo。启动 AD9833 FREQ0=10 kHz、PHASE0=0°后，`DLIA_API`以双ADC normal DMA测量`ADC2-ADC1=CH1-CH2`，`DPLL_API`取反为`CH2-CH1`并每10 ms使用滤波相位更新 PHASE0。积分相位按360°环绕；PI 更新不在 DMA 回调执行。已于2026-07-24编译、烧录，闭环复验待重新测量。
+- 当前主任务运行独立 ADC2 采集链路：上电后启动 AD9833、AD9910 的 1 kHz 正弦，再挂接 ADC2 DMA 并启动 TIM1；采满 1024 点后，DMA 回调仅置标志，主循环调用 `adc2_proc()` 按参考工程流程换算并发送。`ADC_VOFA_API_Process()` 未被调用。已于 2026-07-25 编译、链接通过；尚未烧录或上板。
+- 已提供可由应用在 `while` 前显式调用的 `void` 输出封装：`AD9833_API_OutputWaveform(frequency_hz, waveform)` 写 FREQ0/PHASE0/波形模式并释放 RESET；`AD9910_API_OutputSine(frequency_hz, amplitude_mvpp)` 直接包装 `AD9910_output_sine()`。当前 `main.c` 不调用这两个输出封装。
 - USART1已加入非阻塞运行时 PI 命令：仅`kp`、`ki`和只读`show`。每次命令仅回传一次`dpll`摘要；当前 PI 主任务关闭原`phase=...`周期诊断，Kp/Ki仅存于 RAM，复位恢复编译期默认值。
 
 ## 已实现模块
@@ -79,8 +82,8 @@
 
 | 功能 | 引脚 | 说明 |
 | --- | --- | --- |
-| USART1_TX | PB6 | 当前 ADC→VOFA+ 任务输出；与 AD9226 D5 复用 |
-| USART1_RX | PB7 | 当前 ADC→VOFA+ 任务输入；与 AD9226 VSYNC 复用 |
+| USART1_TX | PB6 | 当前 ADC端口预设→VOFA+ 输出；与 AD9226 D5 复用 |
+| USART1_RX | PB7 | 当前 ADC端口预设串口输入；与 AD9226 VSYNC 复用 |
 | USART3_TX | PB10 | AD9226 摘要输出，115200 baud |
 | USART3_RX | PB11 | 当前未使用 |
 | AD9226_D0～D3 | PC6/PC7/PC8/PC9 | DCMI 12 位数据低四位 |
@@ -96,8 +99,9 @@
 | ADS8688_SDO | PB14 / SPI2_MISO | ADS8688 数据输出 |
 | ADS8688_SDI | PB15 / SPI2_MOSI | ADS8688 命令输入 |
 | FREQ_IN / TIM2_CH1 | PA0 | 方波测频输入，上升沿，0 到 3.3 V |
-| ADC1_INP1 | PA1_C | ADC1 采样输入 |
-| ADC2_INP7 | PA7 | ADC2 采样输入；相位demo中使用 |
+| ADC1_INP1 | PA1_C | 当前 ADC端口预设采样输入，必须限制在 0～3.3 V |
+| ADC2_INP7 | PA7 | 当前 ADC端口预设采样输入，必须限制在 0～3.3 V |
+| ADC3_INP0 | PC2_C | 当前 ADC端口预设采样输入，必须限制在 0～3.3 V |
 | DAC1_OUT1 | PA4 | 片上 DAC1 CH1 输出 |
 | DAC1_OUT2 | PA5 | 片上 DAC1 CH2 输出；当前 DAC2 自检使用，与 DAC8830 的 SPI1_SCK 复用 |
 | AD9833_CS / FSYNC | PA1 | AD9833 软件 SPI 片选 |
@@ -124,7 +128,7 @@
 - IIR ADC→DAC 链路已完成 1 kHz 双通道实测：PA1_C 约 1.167 Vpp，PA4 约 0.603 Vpp，对应增益约 0.517，而理论值约 0.505。DMA 同侧空闲半块回写修复已烧录；修复后 PA4 的 9 次原生 Vpp 为 0.587～0.620 V，标准差约 0.011 V，频率约 999～1016 Hz，未再出现此前单次 1.133 Vpp 的明显离群读数。短窗 BYTE 波形导出成功但不用于幅值验收；覆盖完整 1.024 ms DMA 周期的长窗导出因 USB 二进制块截断失败。仍待复测 100 Hz、10 kHz、延迟、削顶、半块交界连续性及 ADC DMA 错误计数。
 - AD9226 与 AD9910 共用 PA6/PA8，与片上 DAC 共用 PA4，与原板载 USART1 共用 PB6/PB7，并占用 TIM1；当前主任务不得同时初始化这些模块。切换回其他 demo 时需恢复对应 `.ioc` 引脚和 TIM1 配置。
 - ADS8688 demo 目前只是“已编译”，需要用 CH1 实际电压完成通信、零点、正负满量程和 VOFA+ 波形验收。
-- `.ioc` 的 ADC1 初始 DMA 仍是半字循环模式，但当前鉴相 demo 在运行时明确覆盖为双 ADC 公共 CDR 的字宽 normal DMA。PA1 和 PA1_C 是本板封装的独立焊盘：前者保留 AD9833-CS GPIO，后者为 ADC1_INP1 专用模拟直连输入。本次 DAC2 自检在生成代码中手工增加 PA5、DAC1_CH2 和 DMA1 Stream2，尚未回写 `.ioc`；后续生成代码前需在 CubeMX 中核对这些运行时覆盖项。
+- 当前 ADC端口预设将 `.ioc` 与生成的 ADC1 配置设为 halfword normal DMA/one-shot。PA1 和 PA1_C 是本板封装的独立焊盘：前者保留 AD9833-CS GPIO，后者为 ADC1_INP1 专用模拟直连输入。本次 DAC2 自检在生成代码中手工增加 PA5、DAC1_CH2 和 DMA1 Stream2，尚未回写 `.ioc`；后续生成代码前需在 CubeMX 中核对这些运行时覆盖项。
 - VOFA+ FireWater 依赖换行分帧，不应在同一 UART 中插入其他日志，否则会增加无关通道或造成解析干扰。
 
 - 方波测频尚未用实物信号源覆盖验证 1 Hz、频段切换点、10 kHz 分辨率切换点和 1 MHz 上限；应重点观察串口 `raw`、`mode`、`ticks` 和 `periods`。
@@ -142,7 +146,7 @@
 - 三角波输入90°时，原基波正弦拟合实测仅输出72～75°。已新增自动波形分流：两路三次谐波比不低于0.04时，改用归一化互相关与黄金分割亚采样延迟估计；正弦仍使用原最小二乘拟合。合成理想三角波1～100 kHz、±90°验证中最大误差约0.051°，且用户已确认实物完整验收通过。
 - 2026-07-17确认实际ADC2接线为PA7，原软件错配为PA2/ADC2_INP14，已更正为PA7/ADC2_INP7。PA7同时是DAC8830预留的SPI1_MOSI，当前相位demo不初始化SPI1/DAC8830；两项功能不可同时使用。
 - 100 kHz下0.5°对应约13.9 ns；两路输入保护、偏置、RC和走线必须尽量一致，否则模拟链路相差会超过软件误差预算。
-- AD9910 当前不由主任务启动。本次从 `h750_demo_project_2025g` 迁回幂等初始化、原始 ASF 正弦接口和统一标定常量；`AD9910_output_sine()` 的幅度语义为固定十倍后级的末级目标 Vpp，满量程为 `AD9910_OUTPUT_FULL_SCALE_MVPP`，因此在当前未接后级的 demo 接线中不应直接调用。既有正弦波、RAM 方波和 RAM 三角波实测记录仍适用于 `AD9910_API_StartWaveform()` 的直接输出语义；RAM 路径保持在50～1024点间搜索频率误差最小且点数最多的时序，配置为先禁用、装载后再使能，CFR1[16] 选择正弦输出，以90°/270°相位映射正负样本。新增 API 仅完成编译验证，尚未在本主分支上板复测。
+- AD9910 当前由主任务在 `while` 前完成幂等基础初始化，但不启动 DDS 波形。本次从 `h750_demo_project_2025g` 迁回幂等初始化、原始 ASF 正弦接口和统一标定常量；`AD9910_output_sine()` 的幅度语义为固定十倍后级的末级目标 Vpp，满量程为 `AD9910_OUTPUT_FULL_SCALE_MVPP`，因此在当前未接后级的 demo 接线中不应直接调用。既有正弦波、RAM 方波和 RAM 三角波实测记录仍适用于 `AD9910_API_StartWaveform()` 的直接输出语义；RAM 路径保持在50～1024点间搜索频率误差最小且点数最多的时序，配置为先禁用、装载后再使能，CFR1[16] 选择正弦输出，以90°/270°相位映射正负样本。新增 API 仅完成编译验证，尚未在本主分支上板复测。
 - DAC8830 模块的软件换算固定为 ±10 V，原正弦 demo 参数为 10 kHz、1 Vpp、250 点；该 demo 当前不由主程序启动。
 - SPI1 初始化已配置为 Master、TX-only、16-bit、MSB first、CPOL low、CPHA 1-edge、软件 NSS、/2 分频；当前 SPI123 时钟改用 PLL3，目标 120 MHz，SCK 约 60 Mbit/s。
 - DAC8830 正弦模块使用 250 点表和 TIM4 DMA 定时，目标更新率 2.5 MS/s；该链路当前不运行，重新启用后仍需用示波器或逻辑分析仪确认 10 kHz 输出和阶梯/毛刺情况。

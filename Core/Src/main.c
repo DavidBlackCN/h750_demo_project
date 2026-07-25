@@ -19,18 +19,17 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
-#include "dac.h"
 #include "dma.h"
-#include "spi.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "ADC2_CAPTURE_API.h"
+#include "ADC2_CAPTURE_FML.h"
 #include "AD9833_API.h"
-#include "DLIA_API.h"
-#include "DPLL_API.h"
+#include "AD9910_API.h"
 
 /* USER CODE END Includes */
 
@@ -98,43 +97,34 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_ADC1_Init();
   MX_ADC2_Init();
   MX_TIM1_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  if (AD9833_API_StartSine(AD9833_API_DEMO_FREQUENCY_HZ,
-                           DPLL_API_INITIAL_PHASE_COMMAND_DEG) != HAL_OK)
+  if (AD9833_API_Init() != HAL_OK)
   {
     Error_Handler();
   }
-  if (DLIA_API_Init() != HAL_OK)
+  AD9910_API_Init();
+  AD9833_API_OutputWaveform(1000.0f, AD9833_OUT_SINUS);
+  AD9910_API_OutputSine(1000U, 1000U);
+  /* Reference-style ADC2 chain: arm DMA first, then generate TIM1 TRGO. */
+  MY_ADC2_Init();
+  if (HAL_TIM_Base_Start(&htim1) != HAL_OK)
   {
     Error_Handler();
   }
-  if (DPLL_API_Init() != HAL_OK)
-  {
-    Error_Handler();
-  }
+
   /* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    float phase_difference_deg;
-
-    DPLL_API_ProcessUart();
-    DLIA_API_Process();
-    if (DLIA_API_TakeValidPhase(&phase_difference_deg))
-    {
-      if (DPLL_API_ProcessPhase(phase_difference_deg) != HAL_OK)
-      {
-        Error_Handler();
-      }
-    }
+    adc2_proc();
   }
   /* USER CODE END 3 */
 }

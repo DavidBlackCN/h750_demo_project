@@ -1,10 +1,12 @@
 # STM32H750 电赛信号题模板项目
 
-当前主任务为 AD9833 数字 PI 锁相 demo：ADC1/ADC2 同步鉴相后，每 10 ms更新 AD9833 的 PHASE0；不启动 DAC。
+当前主任务为独立 ADC2 采集链路：TIM1 触发 ADC2，DMA 单次采集 1024 点；采满后由 `adc2_proc()` 在前台换算并经 USART1 逐点发送。
 
 这是一个面向电子设计竞赛信号题的 STM32H750 模板工程，目标是把常用的信号产生、采集、频谱分析和串口调试能力提前搭好，后续按题目要求快速组合业务逻辑。
 
 ## 当前能力
+
+- `SUPER_FFT`（按需启用）：ADC3 的 4096 点 FFT 测频模块。它使用 `PC2_C / ADC3_INP0`、DMA1 Stream3 和独立的 TIM6_TRGO；先以约 400 kS/s 粗测 10 kHz～100 kHz，低于 10 kHz 时改为约 40 kS/s 做 FFT 粗测与 1 Hz 步进细扫。当前默认主任务仍是 ADC2，`SUPER_FFT` 不会自动启动。
 
 - AD9833 软件 SPI 驱动：支持寄存器、频率、相位和波形控制。
 - AD9910 波形 API：支持幂等初始化、原始 14 位 ASF 单 Profile 正弦输出，以及按直接输出 mVpp 设置的正弦/三角波/方波；RAM 三角波和方波使用 50～1024 点自适应 polar 回放。十倍后级方案的满量程标定集中在 `HDL/AD9910_Constants.h`。
@@ -28,6 +30,7 @@
 - `BLL/`：业务逻辑层，放采样数据转换、FFT 结果整理、串口批量发送等逻辑。
 - `API/`：应用入口层，放测频、采样帧处理和 FFT 打印等应用入口。
 - `.agents/skills/adc-signal-capture-test/`：ADC采集信号测试技能，指导指定 ADC 引脚的循环 DMA 采集和 FireWater/VOFA+ 输出。
+- `.agents/skills/stm32-adc-port-test/`：ADC端口预设技能，指导一次性 TIM 触发、DMA 采集、停止和 VOFA+ 发送流程。
 - `.agents/skills/stm32h750-iir-ad-da-filter/`：ADC1→二阶 IIR→DAC1 实时低通技能，涵盖 DMA、缓存一致性、对照测试与噪声排查。
 - `Drivers/`、`Middlewares/`：STM32 HAL、CMSIS 和 DSP 相关依赖。
 - `cmake/`、`CMakeLists.txt`：CMake/Ninja 构建配置。
@@ -35,7 +38,9 @@
 
 ## 默认启动流程
 
-`Core/Src/main.c` 当前运行 AD9833 数字 PI 锁相 demo。上电后将 AD9833 FREQ0 配置为 10 kHz、PHASE0 配置为 0°、输出模式配置为正弦；TIM1_TRGO 同步采集 ADC1/ADC2，内部原始相位为`ADC2-ADC1`，进入 PI 前转换为示波器标准`CH2-CH1`，每 10 ms更新 PHASE0。当前不启动 DAC、AD9226 或 DCMI。
+`Core/Src/main.c` 当前运行独立 ADC2 采集链路。上电后先启动 AD9833/AD9910 的 1 kHz 正弦，再调用 `MY_ADC2_Init()` 挂接 ADC2 DMA，最后启动 TIM1。TIM1_TRGO 以 1 MS/s 触发 ADC2，DMA1 Stream1 单次写入 1024 个 10 位原始码；DMA 完成回调只置 `adc2_deal_flag`。主循环中的 `adc2_proc()` 调用 `adc2_deal()`，完成 D-Cache 失效、码值到电压换算、停止 ADC DMA，并经 USART1 逐行发送 1024 个电压值。ADC1、ADC3、DAC、AD9226/DCMI 或 SPI 外设不启动。`ADC_VOFA_API_Process()` 仍保留原 ADC3 预设实现，但当前主任务不调用它。AD9910 初始化将 PA8 改作软件 SCK，故 TIM1_CH1 的外部引脚输出不可用，但内部 TIM1_TRGO 采样不受影响。
+
+如需在 `while` 前启动 DDS，可调用 `AD9833_API_OutputWaveform(frequency_hz, waveform)` 或 `AD9910_API_OutputSine(frequency_hz, amplitude_mvpp)`；两者都是 `void` 封装，内部完成各自所需的初始化和输出配置。
 
 ## 构建
 
@@ -50,15 +55,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 ## 关键配置
 
 - MCU：STM32H750XBHx，工程名 `adc_fft_demo`。
-- USART1：AD9226 主任务下在 `.ioc` 中临时映射到 PA9 TX、PA10 RX，以释放 PB6/PB7；板载 USB 串口不可用于本 demo。
+- USART1：PB6 TX、PB7 RX，921600 8N1；当前 ADC 端口预设用于 VOFA+。PB6/PB7 与 AD9226 资源冲突，不能同时启动。
 - USART3：PB10 TX、PB11 RX，115200 baud，当前用于 AD9226 摘要输出。
 - AD9226：D0～D11 使用 PC6/PC7/PC8/PC9/PE4/PB6/PE5/PE6/PC10/PC12/PB5/PD2，PA8 输出 1 MHz CLK 并回接 PA6/PIXCLK，PB1→PA4、PB2→PB7 为 DCMI 同步门控回路。
 - 方波测频：PA0 / TIM2_CH1，上升沿输入捕获；TIM2 时钟当前为 75 MHz，DMA 使用 DMA1 Stream5。
-- ADC1：PA1_C / ADC1_INP1；当前数字锁相鉴相 demo 中与 ADC2 同步、TIM1_TRGO 触发、约 1 MS/s、两路均为 10 bit、512 点 normal DMA。
-- ADC2：PA7 / ADC2_INP7，双 ADC 从机通道；与DAC8830的SPI1_MOSI复用，不能同时运行。
+- ADC1：PA1_C / ADC1_INP1；当前主任务不初始化，保留给后续 ADC 端口预设或其他任务。
+- ADC2：PA7 / ADC2_INP7；当前独立采集链路由 TIM1_TRGO 触发，目标/实际均为 1 MS/s，10 bit、1024 点 halfword normal DMA（DMA1 Stream1）。
+- ADC3：PC2_C / ADC3_INP0；保留给 `ADC_VOFA_API_*` 的端口预设，当前主任务不初始化。
 - 当前 CubeMX 生成时钟：CPU 480 MHz、AXI/AHB 240 MHz；其他会变的时钟和资源事实见 `STATUS.md`。
 - 片上 DAC1：PA4 / DAC1_OUT1；保留 IIR demo 使用 TIM4_TRGO、1 MS/s、1024 点循环 DMA，当前主任务不启动。
-- ADC 采样：IIR demo 使用 12 bit、TIM1 TRGO、循环 DMA；保留的双 ADC 测频/相位代码使用其原有 16 bit、normal DMA 配置，切换回该任务时须恢复对应 `.ioc` 配置。
+- ADC 采样：IIR demo 使用 12 bit、TIM1 TRGO、循环 DMA；当前端口预设使用 ADC1 10 bit、TIM1 TRGO 和 normal DMA。切换回双 ADC 测频/相位或 IIR 任务时须恢复对应 `.ioc` 配置。
 - AD9833：`FSYNC/CS=PA1`、`SDATA=PH4`、`SCLK=PH5`。本板封装中 PA1 与 PA1_C 是独立焊盘；ADC1 使用 PA1_C，ADC 直连开关保持打开即可与 PA1 的 AD9833 片选并存。
 - AD9910：见 `Core/Inc/main.h` 中 `MRT/PF0/PF1/PF2/IUP/CSN/SDI/SCK9` 宏。
 - DAC8830：默认 `CS1=PE2`、`CS2=PE0`、`SDI=PA7/SPI1_MOSI`、`SCLK=PA5/SPI1_SCK`；当前 DMA demo 使用 TIM4 产生 2.5 MS/s 更新节拍。

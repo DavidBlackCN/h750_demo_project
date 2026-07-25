@@ -57,6 +57,11 @@ void AD9910_output_sine(uint32_t hz, uint32_t mvpp)
     (void)AD9910_API_StartSineByAmplitudeCode(hz, Amp);
 }
 
+void AD9910_API_OutputSine(uint32_t frequency_hz, uint32_t amplitude_mvpp)
+{
+    AD9910_output_sine(frequency_hz, amplitude_mvpp);
+}
+
 HAL_StatusTypeDef AD9910_API_DirectMvppToAmplitudeCode(
     uint32_t amplitude_mvpp, uint16_t *amplitude_code)
 {

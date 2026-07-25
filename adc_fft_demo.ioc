@@ -1,6 +1,6 @@
 #MicroXplorer Configuration settings - do not modify
 ADC1.Channel-0\#ChannelRegularConversion=ADC_CHANNEL_1
-ADC1.ConversionDataManagement=ADC_CONVERSIONDATA_DMA_CIRCULAR
+ADC1.ConversionDataManagement=ADC_CONVERSIONDATA_DMA_ONESHOT
 ADC1.ExternalTrigConv=ADC_EXTERNALTRIG_T1_TRGO
 ADC1.IPParameters=Rank-0\#ChannelRegularConversion,master,Channel-0\#ChannelRegularConversion,SamplingTime-0\#ChannelRegularConversion,OffsetNumber-0\#ChannelRegularConversion,OffsetSignedSaturation-0\#ChannelRegularConversion,NbrOfConversionFlag,ConversionDataManagement,ExternalTrigConv,Resolution
 ADC1.NbrOfConversionFlag=1
@@ -8,7 +8,7 @@ ADC1.OffsetNumber-0\#ChannelRegularConversion=ADC_OFFSET_NONE
 ADC1.OffsetSignedSaturation-0\#ChannelRegularConversion=DISABLE
 ADC1.Rank-0\#ChannelRegularConversion=1
 ADC1.SamplingTime-0\#ChannelRegularConversion=ADC_SAMPLETIME_8CYCLES_5
-ADC1.Resolution=ADC_RESOLUTION_12B
+ADC1.Resolution=ADC_RESOLUTION_10B
 ADC1.master=1
 ADC2.Channel-0\#ChannelRegularConversion=ADC_CHANNEL_7
 ADC2.ClockPrescaler=ADC_CLOCK_ASYNC_DIV2
@@ -54,7 +54,7 @@ Dma.ADC1.0.FIFOMode=DMA_FIFOMODE_DISABLE
 Dma.ADC1.0.Instance=DMA1_Stream0
 Dma.ADC1.0.MemDataAlignment=DMA_MDATAALIGN_HALFWORD
 Dma.ADC1.0.MemInc=DMA_MINC_ENABLE
-Dma.ADC1.0.Mode=DMA_CIRCULAR
+Dma.ADC1.0.Mode=DMA_NORMAL
 Dma.ADC1.0.PeriphDataAlignment=DMA_PDATAALIGN_HALFWORD
 Dma.ADC1.0.PeriphInc=DMA_PINC_DISABLE
 Dma.ADC1.0.Polarity=HAL_DMAMUX_REQ_GEN_RISING

@@ -1,7 +1,9 @@
 #include "ADC_FML.h"
 
 #include "IIR_ADDA_FML.h"
+#include "ADC2_CAPTURE_FML.h"
 #include "ADC_VOFA_FML.h"
+#include "SUPER_FFT.h"
 #include "USART_FML.h"
 #include "adc.h"
 #include "tim.h"
@@ -51,6 +53,12 @@ static void adc1_debug_capture(ADC_HandleTypeDef *hadc, uint8_t callback_type)
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
+    if (ADC_VOFA_FML_IsActive())
+    {
+        ADC_VOFA_FML_OnAdcHalfComplete(hadc);
+        return;
+    }
+
     if (hadc->Instance == ADC1)
     {
         if (IIR_ADDA_FML_IsActive())
@@ -58,12 +66,6 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
             IIR_ADDA_FML_OnAdcHalfComplete();
             return;
         }
-        if (ADC_VOFA_FML_IsActive())
-        {
-            ADC_VOFA_FML_OnAdcHalfComplete();
-            return;
-        }
-
         adc1_half_callback_count++;
         adc1_half_flag = 1;
         adc1_debug_capture(hadc, 1U);
@@ -72,6 +74,24 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
+    if (ADC_VOFA_FML_IsActive())
+    {
+        ADC_VOFA_FML_OnAdcComplete(hadc);
+        return;
+    }
+
+    if (ADC2_CAPTURE_FML_IsActive() && (hadc->Instance == ADC2))
+    {
+        ADC2_CAPTURE_FML_OnDmaComplete(hadc);
+        return;
+    }
+
+    if (SUPER_FFT_IsActive() && (hadc->Instance == ADC3))
+    {
+        SUPER_FFT_OnAdcComplete(hadc);
+        return;
+    }
+
     if (hadc->Instance == ADC1)
     {
         if (IIR_ADDA_FML_IsActive())
@@ -79,12 +99,6 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
             IIR_ADDA_FML_OnAdcComplete();
             return;
         }
-        if (ADC_VOFA_FML_IsActive())
-        {
-            ADC_VOFA_FML_OnAdcComplete();
-            return;
-        }
-
         /* Freeze the trigger immediately; the normal-mode DMA frame is full. */
         __HAL_TIM_DISABLE(&htim1);
         adc1_full_callback_count++;
@@ -95,6 +109,24 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 
 void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
 {
+    if (ADC_VOFA_FML_IsActive())
+    {
+        ADC_VOFA_FML_OnAdcError(hadc);
+        return;
+    }
+
+    if (ADC2_CAPTURE_FML_IsActive() && (hadc->Instance == ADC2))
+    {
+        ADC2_CAPTURE_FML_OnAdcError(hadc);
+        return;
+    }
+
+    if (SUPER_FFT_IsActive() && (hadc->Instance == ADC3))
+    {
+        SUPER_FFT_OnAdcError(hadc);
+        return;
+    }
+
     if (hadc->Instance == ADC1)
     {
         if (IIR_ADDA_FML_IsActive())
@@ -102,12 +134,6 @@ void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
             IIR_ADDA_FML_OnAdcError();
             return;
         }
-        if (ADC_VOFA_FML_IsActive())
-        {
-            ADC_VOFA_FML_OnAdcError();
-            return;
-        }
-
         adc1_error_callback_count++;
         adc1_debug_capture(hadc, 3U);
     }

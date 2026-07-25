@@ -1,4 +1,36 @@
-# 当前主任务：AD9833 数字 PI 锁相 demo
+# 当前主任务：独立 ADC2 采集链路
+
+本链路按参考工程的 ADC2 分层流程移植：`MY_ADC2_Init()` 挂接 1024 点 normal DMA，ADC2 DMA 完成回调只置 `adc2_deal_flag`，主循环的 `adc2_proc()` 先调用 `adc2_deal()` 完成码值换算和停止 DMA，再通过 USART1 逐点发送。为适配 H750，DMA 缓冲区置于 `.dma_buffer` / RAM_D2 并在 DMA 前后维护 D-Cache。进入 `while` 前会启动 AD9833、AD9910 的 1 kHz 正弦输出；AD9910 会占用 `PA8` 作为软件 SCK，因此不能同时把 `PA8/TIM1_CH1` 用作外部时钟输出，内部 TIM1_TRGO 不受影响。
+
+## ADC3 SUPER_FFT 测频（按需启用）
+
+`API/SUPER_FFT.*` 是独立的 ADC3 测频任务，不改变当前 ADC2 默认主任务。启用时在 `main.c` 的初始化阶段调用 `MX_ADC3_Init()`，再调用 `SUPER_FFT_Start()`；主循环持续调用 `SUPER_FFT_Process()`，直至 `SUPER_FFT_IsReady()` 为真，然后用 `SUPER_FFT_GetFrequencyHz()` 读取结果。不要与 `ADC_VOFA_API_*` 同时使用 ADC3。
+
+ADC3 输入为 `PC2_C / ADC3_INP0`，电压必须限制在 0～3.3 V。DMA1 Stream3 的 4096 点 halfword 缓冲区在 `.dma_buffer` / RAM_D2、32 字节对齐；每帧开始前清理缓存、完成后在前台失效缓存。TIM6 不占用任何外部引脚，运行时根据实际 APB1 定时器时钟计算 PSC/ARR，输出 UPDATE TRGO；当前时钟配置下目标/实际采样率为 400 kS/s 和 40 kS/s。ADC3 为 12 bit、8.5 周期采样时间，ADC 时钟约 80 MHz，远高于最高 400 kS/s 的转换需求。
+
+如需上电即输出 DDS 波形，可在 `/* USER CODE BEGIN 2 */`、`while` 前直接调用：
+
+```c
+AD9833_API_OutputWaveform(1000.0f, AD9833_OUT_SINUS);
+AD9910_API_OutputSine(1000U, 1000U);
+```
+
+前者的第二个参数可选 `AD9833_OUT_SINUS`、`AD9833_OUT_TRIANGLE`、`AD9833_OUT_MSB` 或 `AD9833_OUT_MSB2`；后者的幅度单位与既有 `AD9910_output_sine()` 完全一致，表示固定十倍后级的目标 mVpp。
+
+| 连接对象 | STM32H750 MCU 引脚 | 配置 |
+| --- | --- | --- |
+| ADC2 待测模拟信号 | `PA7 / ADC2_INP7` | 单端 0～3.3 V；与 DAC8830 的 SPI1_MOSI 复用，当前不可同时启用 DAC8830 |
+| USB-TTL 接收端 RX | `PB6 / USART1_TX` | 固件输出，921600 baud、8N1、无流控 |
+| USB-TTL 发送端 TX（可不接） | `PB7 / USART1_RX` | 本预设不接收命令；若接入，仍须与 TX 交叉 |
+| USB-TTL 地 / 信号源地 | `GND` | 必须共地 |
+
+目标采样率为 1 MS/s。TIM1 计数时钟为 240 MHz，使用 PSC=0、ARR=239，实际采样率为 1,000,000 S/s；ADC2 使用 80 MHz 时钟、10 bit、8.5 周期采样时间。一个采样周期为 80 个 ADC 时钟，满足 10 bit 转换时间；DMA 缓冲区位于 `.dma_buffer` / RAM_D2、32 字节对齐，并在 DMA 前后维护 D-Cache。
+
+USART1 使用 921600、8N1、无流控。`adc2_proc()` 复用参考工程的 `Usart_Send_ADC_Data()`，输出格式为每个换算后的电压一行：`%.5f\r\n`，共 1024 行；使用 VOFA+ 时选择可逐行接收数值的文本协议，不混入其他日志。新开发板的丝印/排针位置必须以其原理图或 pinout 对应上述 MCU 管脚为准，不能把不同 H750 板的排针编号当作通用定义。
+
+验收时先断电接线，确认 `PA7` 电压未超过 0～3.3 V，再上电观察单帧曲线。成功编译、烧录、串口收帧和示波器确认输入波形分别是不同验证结论；本次尚未执行后三项。
+
+# 保留说明：AD9833 数字 PI 锁相 demo
 
 当前主程序以 TIM1_TRGO 同步采集 ADC1/ADC2 并运行数字鉴相器。AD9833 软件 SPI 引脚为`PA1=FSYNC`、`PH4=SDATA`、`PH5=SCLK`；本板 MCLK 为 25 MHz，启动时输出 FREQ0=10 kHz、PHASE0=0°正弦。前台每 10 ms将内部`ADC2-ADC1`相位转换为示波器标准`CH2-CH1`后更新 AD9833 PHASE0；ADC、AD9833 与 USART1 会启动，DAC 不启动。
 

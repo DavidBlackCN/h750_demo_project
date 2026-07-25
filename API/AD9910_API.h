@@ -34,6 +34,12 @@ void AD9910_API_Init(void);
  */
 void AD9910_output_sine(uint32_t hz, uint32_t mvpp);
 
+/*
+ * Start a sine wave through AD9910_output_sine().  amplitude_mvpp uses the
+ * same fixed post-amplifier output scale as AD9910_output_sine().
+ */
+void AD9910_API_OutputSine(uint32_t frequency_hz, uint32_t amplitude_mvpp);
+
 /**
  * @brief 初始化 AD9910，并从 Profile 0 输出指定波形。
  * @note  本接口的幅度表示 AD9910 模块直接输出端的 Vpp，不包含 G 题外接的
