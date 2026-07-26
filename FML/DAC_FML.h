@@ -13,7 +13,6 @@ typedef enum
     DAC_USER_WAVE_SINE = 0,
     DAC_USER_WAVE_SQUARE,
     DAC_USER_WAVE_TRIANGLE,
-    DAC_USER_WAVE_SAWTOOTH,
     DAC_USER_WAVE_DC
 } dac_wave_type_t;
 

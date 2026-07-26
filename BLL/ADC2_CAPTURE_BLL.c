@@ -13,18 +13,33 @@ void adc2_deal(void)
     {
         adc2_deal_flag = 0U;
 
-        /* DMA has filled RAM_D2; make its writes visible to the M7 core. */
-        SCB_InvalidateDCache_by_Addr((uint32_t *)adc2_dma_buffer,
-                                     sizeof(adc2_dma_buffer));
+        if (!ADC2_CAPTURE_FML_TakeCompletedFrame())
+        {
+            return;
+        }
 
-        for (uint32_t i = 0U; i < ADC2_DMA_BUFFER_LENGTH; ++i)
+        for (uint32_t i = 0U; i < ADC2_CAPTURE_FML_GetSampleCount(); ++i)
         {
             /* ADC2 is currently configured for 10-bit right-aligned data. */
             adc2_capture_data[i] = (float)(adc2_dma_buffer[i] & 0x03FFU) *
                                    3.3f / ADC2_CAPTURE_FULL_SCALE_CODE;
         }
 
-        (void)HAL_ADC_Stop_DMA(&hadc2);
         adc2_proc_flag = 1U;
     }
+}
+
+const float *ADC2_CAPTURE_BLL_GetVoltageFrame(void)
+{
+    return adc2_capture_data;
+}
+
+uint32_t ADC2_CAPTURE_BLL_GetSampleCount(void)
+{
+    return ADC2_CAPTURE_FML_GetSampleCount();
+}
+
+float ADC2_CAPTURE_BLL_GetSampleRateHz(void)
+{
+    return ADC2_CAPTURE_FML_GetSampleRateHz();
 }

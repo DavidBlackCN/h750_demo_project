@@ -14,9 +14,10 @@
 #define SUPER_FFT_HIGH_RATE_HZ          400000U
 #define SUPER_FFT_LOW_RATE_HZ            40000U
 #define SUPER_FFT_LOW_MIN_HZ                10U
-#define SUPER_FFT_LOW_MAX_HZ             10000U
-#define SUPER_FFT_HIGH_MIN_HZ            10000U
+#define SUPER_FFT_LOW_MAX_HZ             12000U
+#define SUPER_FFT_HIGH_MIN_HZ               10U
 #define SUPER_FFT_HIGH_MAX_HZ           100000U
+#define SUPER_FFT_HIGH_LOW_HANDOFF_HZ    12000U
 #define SUPER_FFT_HIGH_BLOCK_COUNT           4U
 #define SUPER_FFT_LOW_BLOCK_COUNT           10U
 #define SUPER_FFT_FINE_SPAN_HZ               40U
@@ -347,6 +348,9 @@ void SUPER_FFT_Process(void)
 
     if (s_state == SUPER_FFT_STATE_HIGH_COARSE)
     {
+        /* Search the complete band first. A low-frequency signal must be
+           detected here before the state machine can enter its 40 kS/s
+           coarse/fine measurement path. */
         first = super_fft_first_bin(SUPER_FFT_HIGH_MIN_HZ);
         last = super_fft_last_bin(SUPER_FFT_HIGH_MAX_HZ);
         super_fft_accumulate_fft_power(first, last);
@@ -354,7 +358,7 @@ void SUPER_FFT_Process(void)
         if (s_block_count >= SUPER_FFT_HIGH_BLOCK_COUNT)
         {
             s_measured_frequency_hz = super_fft_peak_frequency(first, last);
-            if (s_measured_frequency_hz >= SUPER_FFT_HIGH_MIN_HZ)
+            if (s_measured_frequency_hz >= SUPER_FFT_HIGH_LOW_HANDOFF_HZ)
             {
                 s_state = SUPER_FFT_STATE_READY;
                 return;

@@ -1,6 +1,6 @@
 # 项目状态
 
-## 当前主任务：独立 ADC2 采集链路（2026-07-25）
+## 当前主任务：DDS 与片内 DAC 同时输出（2026-07-26）
 
 - `FML/ADC2_CAPTURE_FML.*`、`BLL/ADC2_CAPTURE_BLL.*` 和 `API/ADC2_CAPTURE_API.*`按参考工程的 `MY_ADC2_Init()`、`adc2_deal()`、`adc2_proc()` 分层建立独立链路。ADC2 为 `PA7 / ADC2_INP7`；TIM1_TRGO 使用 240 MHz 计数时钟、PSC=0、ARR=239，目标/实际采样率均为 1 MS/s；ADC2 使用 10 bit、8.5 周期采样时间、无过采样。
 - 新增可选 `API/SUPER_FFT.*`：ADC3 (`PC2_C / ADC3_INP0`) 通过 DMA1 Stream3 单帧采集 4096 点，并使用独立的 TIM6_TRGO，不再占用 TIM1。测频沿用参考工程“400 kS/s 高频粗测→40 kS/s 低频 FFT 粗测→1 Hz 步进细扫”的流程；TIM6 的 PSC/ARR 按实际 APB1 定时器时钟计算。DMA 缓冲区位于 RAM_D2、32 字节对齐，前后台维护 D-Cache，回调只置完成标志。该模块尚未接入 `main.c`，不得与 ADC3 的 VOFA 预设同时运行。`Core/Src/adc.c` 中 ADC3 的手工触发源改为 `ADC_EXTERNALTRIG_T6_TRGO`，与当前 `.ioc` 可能不一致，后续 CubeMX 重新生成前须恢复此配置。
@@ -42,9 +42,10 @@
 - 二阶 IIR 低通与 ADC→DAC 主任务已编译、烧录并上板验证：`FML/IIR_FML.*`按双线性变换复刻`1 / (1e-8 s² + 3e-4 s + 1)`；`FML/IIR_ADDA_FML.*`使用 ADC1/DAC1 的 1024 点循环 DMA、同侧空闲半块回写和 D-Cache 维护，以 1 MS/s 运行。修复前版本已实测 1 kHz 交流增益接近理论值但出现严重可见失真；修复后 1 kHz PA4 原生 Vpp 重复读数标准差降至约 0.011 V，长窗波形导出仍受 USB 二进制块截断限制。
 
 ## 当前主程序行为
+- 当前主任务同时启动 AD9833 的 1 kHz 正弦、AD9910 的 100 kHz、500 mVpp 正弦和片内 `DAC1_CH1 / PA4` 的 1 kHz、1 Vpp、1.65 V 偏置方波。DAC 使用 `TIM4_TRGO` 触发、DMA1 Stream6 的普通单缓冲循环 DMA 搬运 256 点波表；正弦、方波、三角波和直流各有一张独立 DMA 源表。USART1 已在 PB6/PB7、921600 8N1 启动片内 DAC 参数命令，逐行发送 `波形编号 频率Hz Vpp 偏置V`，编号为 0 正弦、1 方波、2 三角波、3 直流；有效命令由前台先 stop 再 start 片内 DAC，返回 `ok`，格式或参数错误返回 `err`，DDS 输出不受影响。直接在运行中调用原有 `DAC_Waveform_StartChannel()`、`Start()` 或 `Apply()` 仍返回 `HAL_BUSY`，须先调用 `DAC_Waveform_Stop()` 后再以新参数启动，避免改写 DMA 正在读取的表。DMA 或 DAC 欠载错误后返回 `HAL_ERROR`，同样需 stop 后重新启动。IIR ADC→DAC 链路保留原有的同侧半缓冲回写调度，未改为此处的单缓冲模式。`TIM6_DAC_IRQn` 已接入 HAL 的欠载处理。AD9833 使用 PA1/PH4/PH5；AD9910 使用 PA6、PA8、PA12、PD4、PD5 和 PG7/PG9/PG11，与 PA4、TIM4、DMA1 Stream6、USART1 的路径不冲突。`PA5 / DAC1_CH2` 仍可通过原 API 选择，但它与 DAC8830 的 `SPI1_SCK` 复用，首次验收不使用该引脚。该组合已编译、链接通过，尚未烧录或上板验证。
 
 - 当前主任务运行独立 ADC2 采集链路：上电后启动 AD9833、AD9910 的 1 kHz 正弦，再挂接 ADC2 DMA 并启动 TIM1；采满 1024 点后，DMA 回调仅置标志，主循环调用 `adc2_proc()` 按参考工程流程换算并发送。`ADC_VOFA_API_Process()` 未被调用。已于 2026-07-25 编译、链接通过；尚未烧录或上板。
-- 已提供可由应用在 `while` 前显式调用的 `void` 输出封装：`AD9833_API_OutputWaveform(frequency_hz, waveform)` 写 FREQ0/PHASE0/波形模式并释放 RESET；`AD9910_API_OutputSine(frequency_hz, amplitude_mvpp)` 直接包装 `AD9910_output_sine()`。当前 `main.c` 不调用这两个输出封装。
+- 已提供可由应用在 `while` 前显式调用的 `void` 输出封装：`AD9833_API_OutputWaveform(frequency_hz, waveform)` 写 FREQ0/PHASE0/波形模式并释放 RESET；`AD9910_API_OutputSine(frequency_hz, amplitude_mvpp)` 直接包装 `AD9910_output_sine()`。当前 `main.c` 分别以 1 kHz 和 2 kHz 调用这两个输出封装。
 - USART1已加入非阻塞运行时 PI 命令：仅`kp`、`ki`和只读`show`。每次命令仅回传一次`dpll`摘要；当前 PI 主任务关闭原`phase=...`周期诊断，Kp/Ki仅存于 RAM，复位恢复编译期默认值。
 
 ## 已实现模块
@@ -157,3 +158,63 @@
 - 2026-07-23 已使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\flash.ps1` 完成脚本实测：Debug 构建无待编译目标，CMSIS-DAPv2（序列号 `132765404740`）识别 STM32H7，OpenOCD 的 programming、verify、reset 均成功。脚本已兼容 OpenOCD stderr 横幅和 Windows 路径传给 OpenOCD Tcl 时的转义问题。
 - 文档生成前工作区已有无关修改：`.clangd`、`.settings/*`、`.vscode/c_cpp_properties.json`。
 - 后续开发请避免回退这些未确认来源的文件。
+
+## ADC2 FFT task update (2026-07-26)
+
+- The active `main.c` task initializes GPIO, DMA, ADC2, TIM1, and USART1 only.
+  It keeps AD9833 at 1 kHz sine and AD9910 at 100 kHz / 300 mVpp, but does not
+  start the on-chip DAC, TIM4, or the DAC UART command task.
+- ADC2 uses PA7 / ADC2_INP7, TIM1 TRGO, and DMA1 Stream1 in normal halfword mode.
+  Two 4096-point frames are captured. The coarse frame is near 409.6 kS/s; its
+  estimated 10-100 kHz frequency searches TIM1 rates from 360 to 409.6 kS/s
+  for the final frame's lower cycle-closure error. This keeps FFT bin spacing
+  no coarser than 100 Hz; divider 586 is 409556.31 S/s and 99.989 Hz.
+- ADC2 capture and FFT are separated. `adc2_proc()` handles only capture polling,
+  stop/cache handling, voltage conversion, and raw-frame publication. FFT
+  accepts only raw samples, count, and sample rate in `ADC2_FFT_BLL`, using a
+  table-free 4096-point radix-2 transform in `ADC2_FFT_FML` to fit the 128 KB
+  FLASH region.
+- USART1 is 921600 8N1. After the final frame only, UART sends `raw begin`, 4096
+  `raw:<10-bit-code>` lines, `raw end`, then the 2048-bin nonredundant spectrum
+  as `spectrum begin`, `fft:<bin>,<amplitude-v>`, and `spectrum end`, followed by
+  one `result` line. The coarse frame is not transmitted. The blocking transfer
+  is intentionally after sampling is stopped and takes a visible UART interval.
+- `Tools/build.ps1` completed successfully on 2026-07-26: FLASH 76532 B / 128 KB
+  (58.39%), DTCMRAM 64456 B / 128 KB (49.18%), RAM_D2 12 KB / 288 KB (4.17%).
+  This task has not been flashed or verified on hardware. Keep PA7 within 0-3.3 V,
+  share ground, and disconnect AD9226 wiring from PB6/PB7 before USART1 use.
+## Generic FFT BLL input (2026-07-26)
+
+- `ADC2_FFT_BLL_Analyze()` now receives `adc2_fft_input_config_t`, not fixed
+  ADC2 conversion constants. The descriptor contains real sample rate, 4096
+  sample count, 1-16 bit width, raw encoding, volts per LSB, and peak search
+  bounds. It supports unsigned, offset-binary, and two's-complement `uint16_t`
+  data from any independent ADC capture chain.
+- The current ADC2 API supplies its existing 10-bit unsigned, `3.3/1023 V/LSB`,
+  and 10-100 kHz configuration. Its acquisition task remains unchanged. FFT is
+  still fixed to a 4096-point transform.
+## ADC2 FFT single-shot update (2026-07-26)
+
+- The ADC2 FFT API remains in `DONE` after one final-frame report. It performs
+  one coarse capture and one coherent final capture after reset, sends raw data,
+  half-spectrum, and frequency once, then keeps ADC2 sampling stopped.
+## SUPER_FFT main task update (2026-07-26)
+
+- `main.c` now starts `SUPER_FFT` on ADC3 (`PC2_C / ADC3_INP0`). ADC2 FFT calls,
+  ADC2 initialization, and TIM1 initialization are retained as comments and are
+  not active. ADC3 is triggered by internal TIM6 TRGO and uses DMA1 Stream3.
+- The current `SUPER_FFT` module measures internally but does not format or send
+  an internal UART result. `main.c` initializes USART1, restarts `SUPER_FFT`
+  after every completed result, and sends `freq=<measured-Hz>Hz` only on the
+  first result or when the measured frequency rounded to 1 Hz changes. The
+  result remains available through `SUPER_FFT_GetFrequencyHz()`.
+- USART1 result output uses interrupt-driven `HAL_UART_Transmit_IT()` with a
+  short static buffer and one coalescing pending value. The FFT loop never waits
+  for UART completion; when USART1 is busy, only the newest changed frequency is
+  retained for the next transmit.
+- The 400 kS/s first-stage search covers 10 Hz to 100 kHz before deciding whether
+  to hand off below 12 kHz to the 40 kS/s low-frequency fine scan. The low stage
+  now covers 10 Hz to 12 kHz, so an actual 10 kHz signal remains eligible for
+  the 1 Hz fine scan even when high-rate coarse FFT interpolation lands slightly
+  above the 10 kHz boundary. This fixes the former 10 kHz lower search boundary,
+  which could classify a 10 Hz signal as an arbitrary high-frequency noise peak.
