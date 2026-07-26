@@ -14,6 +14,16 @@ bool ADC2_CAPTURE_API_HasFrame(void)
     return (adc2_proc_flag != 0U);
 }
 
+bool ADC2_CAPTURE_API_HasError(void)
+{
+    return ADC2_CAPTURE_FML_HasError();
+}
+
+uint32_t ADC2_CAPTURE_API_GetErrorCode(void)
+{
+    return ADC2_CAPTURE_FML_GetErrorCode();
+}
+
 void ADC2_CAPTURE_API_ReleaseFrame(void)
 {
     adc2_proc_flag = 0U;

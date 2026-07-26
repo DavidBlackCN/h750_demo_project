@@ -1,6 +1,8 @@
 # 项目状态
 
-## 当前主任务：DDS 与片内 DAC 同时输出（2026-07-26）
+## 当前主任务：ADC2 FFT 测频与波形识别（2026-07-26）
+
+- `main.c` 当前初始化 GPIO、DMA、ADC2、TIM1 和 USART1；上电后运行一次 `ADC2_FFT_API_Start()`，主循环执行 `adc2_proc()` 与 `ADC2_FFT_API_Process()`。模拟输入为 `PA7 / ADC2_INP7`，必须共地并限制为 0～3.3 V。该任务先测频并选择最终采样率，再输出一次原始波形、半边频谱和最终频率；最终结果还输出 `wave=sine|triangle|square|unknown` 与 `h3`/`h5` 谐波比。AD9833 仍输出 1 kHz 正弦，AD9910 仍输出 100 kHz / 300 mVpp 正弦。TIM2 方波测频调用保留为注释，未启动。
 
 - `FML/ADC2_CAPTURE_FML.*`、`BLL/ADC2_CAPTURE_BLL.*` 和 `API/ADC2_CAPTURE_API.*`按参考工程的 `MY_ADC2_Init()`、`adc2_deal()`、`adc2_proc()` 分层建立独立链路。ADC2 为 `PA7 / ADC2_INP7`；TIM1_TRGO 使用 240 MHz 计数时钟、PSC=0、ARR=239，目标/实际采样率均为 1 MS/s；ADC2 使用 10 bit、8.5 周期采样时间、无过采样。
 - 新增可选 `API/SUPER_FFT.*`：ADC3 (`PC2_C / ADC3_INP0`) 通过 DMA1 Stream3 单帧采集 4096 点，并使用独立的 TIM6_TRGO，不再占用 TIM1。测频沿用参考工程“400 kS/s 高频粗测→40 kS/s 低频 FFT 粗测→1 Hz 步进细扫”的流程；TIM6 的 PSC/ARR 按实际 APB1 定时器时钟计算。DMA 缓冲区位于 RAM_D2、32 字节对齐，前后台维护 D-Cache，回调只置完成标志。该模块尚未接入 `main.c`，不得与 ADC3 的 VOFA 预设同时运行。`Core/Src/adc.c` 中 ADC3 的手工触发源改为 `ADC_EXTERNALTRIG_T6_TRGO`，与当前 `.ioc` 可能不一致，后续 CubeMX 重新生成前须恢复此配置。
@@ -42,7 +44,7 @@
 - 二阶 IIR 低通与 ADC→DAC 主任务已编译、烧录并上板验证：`FML/IIR_FML.*`按双线性变换复刻`1 / (1e-8 s² + 3e-4 s + 1)`；`FML/IIR_ADDA_FML.*`使用 ADC1/DAC1 的 1024 点循环 DMA、同侧空闲半块回写和 D-Cache 维护，以 1 MS/s 运行。修复前版本已实测 1 kHz 交流增益接近理论值但出现严重可见失真；修复后 1 kHz PA4 原生 Vpp 重复读数标准差降至约 0.011 V，长窗波形导出仍受 USB 二进制块截断限制。
 
 ## 当前主程序行为
-- 当前主任务同时启动 AD9833 的 1 kHz 正弦、AD9910 的 100 kHz、500 mVpp 正弦和片内 `DAC1_CH1 / PA4` 的 1 kHz、1 Vpp、1.65 V 偏置方波。DAC 使用 `TIM4_TRGO` 触发、DMA1 Stream6 的普通单缓冲循环 DMA 搬运 256 点波表；正弦、方波、三角波和直流各有一张独立 DMA 源表。USART1 已在 PB6/PB7、921600 8N1 启动片内 DAC 参数命令，逐行发送 `波形编号 频率Hz Vpp 偏置V`，编号为 0 正弦、1 方波、2 三角波、3 直流；有效命令由前台先 stop 再 start 片内 DAC，返回 `ok`，格式或参数错误返回 `err`，DDS 输出不受影响。直接在运行中调用原有 `DAC_Waveform_StartChannel()`、`Start()` 或 `Apply()` 仍返回 `HAL_BUSY`，须先调用 `DAC_Waveform_Stop()` 后再以新参数启动，避免改写 DMA 正在读取的表。DMA 或 DAC 欠载错误后返回 `HAL_ERROR`，同样需 stop 后重新启动。IIR ADC→DAC 链路保留原有的同侧半缓冲回写调度，未改为此处的单缓冲模式。`TIM6_DAC_IRQn` 已接入 HAL 的欠载处理。AD9833 使用 PA1/PH4/PH5；AD9910 使用 PA6、PA8、PA12、PD4、PD5 和 PG7/PG9/PG11，与 PA4、TIM4、DMA1 Stream6、USART1 的路径不冲突。`PA5 / DAC1_CH2` 仍可通过原 API 选择，但它与 DAC8830 的 `SPI1_SCK` 复用，首次验收不使用该引脚。该组合已编译、链接通过，尚未烧录或上板验证。
+- 片内 DAC 波形任务及其串口参数命令代码均保留，但当前 ADC2 FFT 主任务未启动 DAC、TIM4 或其 DMA。DAC8830 的硬件 SPI 已迁至 `PB3/SPI1_SCK` 和 `PD7/SPI1_MOSI`，片选仍为 `PE2/PE0`，不再与 ADC2 的 PA7 或 DAC1_CH2 的 PA5 复用。DAC8830 DMA 波形输出仍独占 TIM4 与 DMA1 Stream2/3/4；因此它可与当前 ADC2 FFT（TIM1、DMA1 Stream1）并存，但不能与使用这些 DMA 流或 TIM4 的片内 DAC、ADC3 SUPER_FFT、USART3 DMA 任务同时启动。
 
 - 当前主任务运行独立 ADC2 采集链路：上电后启动 AD9833、AD9910 的 1 kHz 正弦，再挂接 ADC2 DMA 并启动 TIM1；采满 1024 点后，DMA 回调仅置标志，主循环调用 `adc2_proc()` 按参考工程流程换算并发送。`ADC_VOFA_API_Process()` 未被调用。已于 2026-07-25 编译、链接通过；尚未烧录或上板。
 - 已提供可由应用在 `while` 前显式调用的 `void` 输出封装：`AD9833_API_OutputWaveform(frequency_hz, waveform)` 写 FREQ0/PHASE0/波形模式并释放 RESET；`AD9910_API_OutputSine(frequency_hz, amplitude_mvpp)` 直接包装 `AD9910_output_sine()`。当前 `main.c` 分别以 1 kHz 和 2 kHz 调用这两个输出封装。
@@ -57,11 +59,11 @@
 - `HDL/AD9910.*`：AD9910 GPIO、寄存器写入和 Profile 设置基础代码；`HDL/AD9910_Constants.h` 集中定义 ASF 上限与固定十倍后级的满量程标定参数。
 - `HDL/ADS8688.*`：ADS8688 SPI2 命令、程序寄存、量程和手动转换驱动。
 - `HDL/DAC8830.*`：DAC8830 双通道写码值、毫伏输出、量程选择、零码校准偏移，底层使用 SPI1 硬件发送。
-- `HDL/DAC8830_DMA.*`：TIM4 + DMA 波形输出，DMA1 Stream2 拉低 CS、Stream3 写 SPI1 TXDR、Stream4 拉高 CS。
+- `HDL/DAC8830_DMA.*`：TIM4 + DMA 波形输出，DMA1 Stream2 拉低 CS、Stream3 写 SPI1 TXDR、Stream4 拉高 CS；这些资源不可与同流/同定时器任务并用。
 - `FML/DAC_FML.*`：片上 DAC 波形 DMA 输出。
 - `FML/ADC_FML.*`：双ADC同步DMA缓冲、校准、帧重启、回调状态和DCache维护。
 - `FML/FFT_FML.*`：4096 点 FFT、窗函数、峰值和相位基础计算。
-- `FML/FREQ_FML.*`：TIM2 输入捕获自动量程、低频中断、高频 DMA、DCache 维护、超时和频率结果。
+- `FML/FREQ_FML.*`：TIM2 输入捕获自动量程、低频中断、高频 DMA、DCache 维护、超时和频率结果；`API/FREQ_API.*` 的 USART1 摘要使用中断发送和单条最新值待发槽，不阻塞测频状态机。
 - `FML/IIR_FML.*`：基于 CMSIS-DSP DF1 双二阶的单位增益二阶低通；系数随实际采样率初始化，状态跨数据块保持。
 - `FML/IIR_ADDA_FML.*`：保留的 ADC1→IIR→DAC1 DMA 调度、ADC/DAC 定时器配置、DMA 缓冲区及 D-Cache 维护。
 - `API/IIR_AD_DA_API.*`：IIR ADC→DAC 主任务启动入口。
@@ -104,7 +106,7 @@
 | ADC2_INP7 | PA7 | 当前 ADC端口预设采样输入，必须限制在 0～3.3 V |
 | ADC3_INP0 | PC2_C | 当前 ADC端口预设采样输入，必须限制在 0～3.3 V |
 | DAC1_OUT1 | PA4 | 片上 DAC1 CH1 输出 |
-| DAC1_OUT2 | PA5 | 片上 DAC1 CH2 输出；当前 DAC2 自检使用，与 DAC8830 的 SPI1_SCK 复用 |
+| DAC1_OUT2 | PA5 | 片上 DAC1 CH2 输出；与迁移后的 DAC8830 SPI1 引脚无复用 |
 | AD9833_CS / FSYNC | PA1 | AD9833 软件 SPI 片选 |
 | AD9833_SDA | PH4 | AD9833 软件 SPI 数据 |
 | AD9833_SCK | PH5 | AD9833 软件 SPI 时钟 |
@@ -118,8 +120,8 @@
 | AD9910_PF2 | PG7 | AD9910 Profile 选择位 2 |
 | DAC8830_CS1 | PE2 | DAC8830 通道 A 片选 |
 | DAC8830_CS2 | PE0 | DAC8830 通道 B 片选 |
-| DAC8830_SDI | PA7 / SPI1_MOSI | DAC8830 硬件 SPI 数据 |
-| DAC8830_SCLK | PA5 / SPI1_SCK | DAC8830 硬件 SPI 时钟 |
+| DAC8830_SDI | PD7 / SPI1_MOSI | DAC8830 硬件 SPI 数据 |
+| DAC8830_SCLK | PB3 / SPI1_SCK | DAC8830 硬件 SPI 时钟 |
 
 注意：本板封装的`AD9833_CS / FSYNC=PA1`与`ADC1_INP1=PA1_C`是独立焊盘，可同时使用；ADC 初始化须保持`SYSCFG_SWITCH_PA1`打开，使 PA1_C 直连 ADC，而 PA1 保持普通 GPIO。
 
@@ -139,13 +141,13 @@
 - AD9226 的 TIM1_CH1 标称输出为 1 MHz；当前系统使用内部 HSI 派生时钟，实测前仍需用示波器复核 PA8/PA6 的真实频率和边沿质量。
 - 相位校准表当前四个频点均为`0°`占位值。达到全频段0.5°指标前，必须使用同源一分二输入，在1 kHz、10 kHz、50 kHz、100 kHz测出通道固定相差并写入`BLL/PHASE_BLL.c`。
 - 相干采样以第一帧频率估计为依据；若输入在两帧之间发生跳频或漂移，第二帧不再严格相干，需依靠`closure`、拟合质量和重复测量识别。
-- `.ioc` 已按双 ADC 主链路补齐 ADC2 和 TIM1 配置，但 PA7 的 ADC2/SPI1_MOSI 互斥仍需在切换相位与 DAC8830 任务时人工确认；不要在同一主任务中同时初始化二者。
+- `.ioc` 已按双 ADC 主链路补齐 ADC2 和 TIM1 配置；DAC8830 的 SPI1 已迁至 PB3/PD7，因此不再与 PA7 的 ADC2 输入互斥。
 - 双ADC链路和算法尚未经过实物信号源验证；应覆盖1 kHz、100 kHz、接近±180°、不同幅度及低信噪比场景。
 - 2026-07-17首次上板时仅看到启动日志、没有首帧结果；已针对ADC从机校准顺序进行修正。当前正常启动不再打印就绪信息；若采集超时，串口会输出`phase capture timeout ...`寄存器快照供继续定位。
 - 2026-07-17新日志确认DMA每帧数据已完成，但当前中断配置下HAL DMA完成回调未进入；双ADC单帧采集现明确改为轮询`NDTR`完成，取消20 ms等待和`DMA callback missed`刷屏，仍保留100 ms真实超时诊断。后续已确认ADC2实际接在PA7并修正通道配置。
 - 90°输入日志在相干采样率放宽到1～1.5 MS/s后曾出现大量随机离群，但同源分路测试接近0°。相位帧已收紧到1～1.1 MS/s、正弦拟合质量门限提高到0.98，并停止输出无效帧；后续正弦/三角波整体实物验收已通过。
 - 三角波输入90°时，原基波正弦拟合实测仅输出72～75°。已新增自动波形分流：两路三次谐波比不低于0.04时，改用归一化互相关与黄金分割亚采样延迟估计；正弦仍使用原最小二乘拟合。合成理想三角波1～100 kHz、±90°验证中最大误差约0.051°，且用户已确认实物完整验收通过。
-- 2026-07-17确认实际ADC2接线为PA7，原软件错配为PA2/ADC2_INP14，已更正为PA7/ADC2_INP7。PA7同时是DAC8830预留的SPI1_MOSI，当前相位demo不初始化SPI1/DAC8830；两项功能不可同时使用。
+- 2026-07-17确认实际ADC2接线为PA7，原软件错配为PA2/ADC2_INP14，已更正为PA7/ADC2_INP7。DAC8830 的 SPI1_MOSI 已迁至 PD7，因此 ADC2 与 DAC8830 的数据引脚不再复用。
 - 100 kHz下0.5°对应约13.9 ns；两路输入保护、偏置、RC和走线必须尽量一致，否则模拟链路相差会超过软件误差预算。
 - AD9910 当前由主任务在 `while` 前完成幂等基础初始化，但不启动 DDS 波形。本次从 `h750_demo_project_2025g` 迁回幂等初始化、原始 ASF 正弦接口和统一标定常量；`AD9910_output_sine()` 的幅度语义为固定十倍后级的末级目标 Vpp，满量程为 `AD9910_OUTPUT_FULL_SCALE_MVPP`，因此在当前未接后级的 demo 接线中不应直接调用。既有正弦波、RAM 方波和 RAM 三角波实测记录仍适用于 `AD9910_API_StartWaveform()` 的直接输出语义；RAM 路径保持在50～1024点间搜索频率误差最小且点数最多的时序，配置为先禁用、装载后再使能，CFR1[16] 选择正弦输出，以90°/270°相位映射正负样本。新增 API 仅完成编译验证，尚未在本主分支上板复测。
 - DAC8830 模块的软件换算固定为 ±10 V，原正弦 demo 参数为 10 kHz、1 Vpp、250 点；该 demo 当前不由主程序启动。
@@ -166,7 +168,7 @@
   start the on-chip DAC, TIM4, or the DAC UART command task.
 - ADC2 uses PA7 / ADC2_INP7, TIM1 TRGO, and DMA1 Stream1 in normal halfword mode.
   Two 4096-point frames are captured. The coarse frame is near 409.6 kS/s; its
-  estimated 10-100 kHz frequency searches TIM1 rates from 360 to 409.6 kS/s
+  estimated 1-100 kHz frequency searches TIM1 rates from 360 to 409.6 kS/s
   for the final frame's lower cycle-closure error. This keeps FFT bin spacing
   no coarser than 100 Hz; divider 586 is 409556.31 S/s and 99.989 Hz.
 - ADC2 capture and FFT are separated. `adc2_proc()` handles only capture polling,
@@ -174,6 +176,22 @@
   accepts only raw samples, count, and sample rate in `ADC2_FFT_BLL`, using a
   table-free 4096-point radix-2 transform in `ADC2_FFT_FML` to fit the 128 KB
   FLASH region.
+- After the final ADC2 FFT peak has been located, the API takes a third,
+  classification-only frame at a TIM1 sample rate near an integer multiple of
+  the measured frequency. `ADC2_FFT_BLL` compares the first six visible odd
+  harmonic bands with sine, triangle, and square spectral profiles, reporting
+  the best spectral score as `sine`, `triangle`, `square`, or `unknown`.
+  Harmonic neighborhoods tolerate residual leakage. The fundamental is excluded
+  from triangle/square spectral matching, so it cannot dominate the classifier;
+  `h3`/`h5` remain diagnostic values only. Classification does not alter
+  frequency estimation or coherent-capture selection.
+- The classification frame is no longer capped at 1 MS/s. It may use up to
+  2 MS/s and selects from 8 through 1024 samples per input period, preserving
+  margin for ADC2, DMA, and analog-front-end timing while keeping more odd
+  harmonics below Nyquist for high-frequency triangle-wave classification.
+  ADC2 capture errors now stop TIM1, propagate to the API, and print an
+  `adc2fft error stage=...` diagnostic instead of leaving the task silent. Each
+  capture stage prints a short marker and has a 100 ms front-end timeout.
 - USART1 is 921600 8N1. After the final frame only, UART sends `raw begin`, 4096
   `raw:<10-bit-code>` lines, `raw end`, then the 2048-bin nonredundant spectrum
   as `spectrum begin`, `fft:<bin>,<amplitude-v>`, and `spectrum end`, followed by
@@ -191,8 +209,10 @@
   bounds. It supports unsigned, offset-binary, and two's-complement `uint16_t`
   data from any independent ADC capture chain.
 - The current ADC2 API supplies its existing 10-bit unsigned, `3.3/1023 V/LSB`,
-  and 10-100 kHz configuration. Its acquisition task remains unchanged. FFT is
-  still fixed to a 4096-point transform.
+  and 1-100 kHz configuration. Its acquisition task remains unchanged. FFT is
+  still fixed to a 4096-point transform. Peak search includes bins straddling
+  both configured limits, preventing actual 1 kHz input from being excluded
+  when the integer TIM1 divider makes its bin position slightly above 10.
 ## ADC2 FFT single-shot update (2026-07-26)
 
 - The ADC2 FFT API remains in `DONE` after one final-frame report. It performs
@@ -212,6 +232,11 @@
   short static buffer and one coalescing pending value. The FFT loop never waits
   for UART completion; when USART1 is busy, only the newest changed frequency is
   retained for the next transmit.
+- `SUPER_FFT` no longer calls the legacy CMSIS 4096-point CFFT path. Its coarse
+  stages use `SUPER_FFT_FML` windowed direct DFT power for only the searched bins;
+  the 4096-point window, bin search, power accumulation, interpolation, and
+  low-frequency fine correlation remain unchanged. This trades update speed for
+  removing the CMSIS 4096-point twiddle and bit-reversal tables from FLASH.
 - The 400 kS/s first-stage search covers 10 Hz to 100 kHz before deciding whether
   to hand off below 12 kHz to the 40 kS/s low-frequency fine scan. The low stage
   now covers 10 Hz to 12 kHz, so an actual 10 kHz signal remains eligible for

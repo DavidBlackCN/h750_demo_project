@@ -69,26 +69,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 - ADC 采样：IIR demo 使用 12 bit、TIM1 TRGO、循环 DMA；当前端口预设使用 ADC1 10 bit、TIM1 TRGO 和 normal DMA。切换回双 ADC 测频/相位或 IIR 任务时须恢复对应 `.ioc` 配置。
 - AD9833：`FSYNC/CS=PA1`、`SDATA=PH4`、`SCLK=PH5`。本板封装中 PA1 与 PA1_C 是独立焊盘；ADC1 使用 PA1_C，ADC 直连开关保持打开即可与 PA1 的 AD9833 片选并存。
 - AD9910：见 `Core/Inc/main.h` 中 `MRT/PF0/PF1/PF2/IUP/CSN/SDI/SCK9` 宏。
-- DAC8830：默认 `CS1=PE2`、`CS2=PE0`、`SDI=PA7/SPI1_MOSI`、`SCLK=PA5/SPI1_SCK`；当前 DMA demo 使用 TIM4 产生 2.5 MS/s 更新节拍。
+- DAC8830：默认 `CS1=PE2`、`CS2=PE0`、`SDI=PD7/SPI1_MOSI`、`SCLK=PB3/SPI1_SCK`；当前 DMA demo 使用 TIM4 产生 2.5 MS/s 更新节拍，不占用 ADC2 的 `PA7` 或 DAC1_CH2 的 `PA5`。
 - ADS8688：`CS=PB12`、`RST_PD=PC4`、`SCK=PB13/SPI2_SCK`、`SDO=PB14/SPI2_MISO`、`SDI=PB15/SPI2_MOSI`；SPI Mode 1，SCK 17 MHz。
 
 更多接线和开发注意事项见 [GUIDE.md](GUIDE.md)，当前状态见 [STATUS.md](STATUS.md)。
 
-## ADC2 FFT Task
+## ADC2 FFT Measurement And Waveform Classification
 
 The current `main.c` task keeps the AD9833 and AD9910 DDS outputs active, then
 captures ADC2 (`PA7 / ADC2_INP7`) with TIM1 TRGO and DMA1 Stream1. It captures a
-4096-sample coarse frame at approximately 409.6 kS/s, searches the available
-360-409.6 kS/s TIM1 dividers for lower cycle-closure error, and captures one
-final 4096-sample frame.
-The actual sample rate is derived from the active TIM1 clock and is reported on
-UART1 (`PB6/PB7`, 921600 8N1).
-
-`adc2_proc()` only drives capture completion and raw-frame publication. FFT code
-is independent in `FML/ADC2_FFT_FML.*` and `BLL/ADC2_FFT_BLL.*`, where analysis
-accepts only a raw array, sample count, and sample rate. The UART output contains
-the final frame: a `raw begin` line, 4096 `raw:<code>` lines, `raw end`, a
-2048-bin `spectrum begin` / `fft:<bin>,<amplitude-v>` / `spectrum end` block,
-and one `result` line containing the measured peak frequency and frequency
-resolution.
-Disconnect any AD9226 wiring from PB6/PB7 while using USART1.
+4096-sample coarse frame at approximately 409.6 kS/s, searches the 1-100 kHz
+range and available 360-409.6 kS/s TIM1 dividers for lower cycle-closure error,
+and captures one final frame. The final result reports measured frequency plus
+`wave=sine|triangle|square|unknown` and the `h3`/`h5` harmonic ratios. TIM2
+frequency measurement initialization and processing calls remain in `main.c` as
+comments and are not active.

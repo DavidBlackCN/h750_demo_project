@@ -16,6 +16,8 @@ void MY_ADC2_Init(void);
 HAL_StatusTypeDef ADC2_CAPTURE_FML_Start(float requested_sample_rate_hz,
                                          uint32_t sample_count);
 bool ADC2_CAPTURE_FML_IsActive(void);
+bool ADC2_CAPTURE_FML_HasError(void);
+uint32_t ADC2_CAPTURE_FML_GetErrorCode(void);
 void ADC2_CAPTURE_FML_Poll(void);
 bool ADC2_CAPTURE_FML_TakeCompletedFrame(void);
 const uint16_t *ADC2_CAPTURE_FML_GetRawBuffer(void);

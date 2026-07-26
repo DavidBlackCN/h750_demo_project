@@ -10,8 +10,10 @@ volatile uint8_t adc2_proc_flag;
 
 static volatile uint8_t adc2_capture_active;
 static volatile uint8_t adc2_capture_complete;
+static volatile uint8_t adc2_capture_error;
 static uint32_t adc2_capture_sample_count;
 static float adc2_capture_sample_rate_hz;
+static uint32_t adc2_capture_error_code;
 
 static uint32_t adc2_capture_get_tim1_clock_hz(void)
 {
@@ -75,6 +77,8 @@ HAL_StatusTypeDef ADC2_CAPTURE_FML_Start(float requested_sample_rate_hz,
     adc2_deal_flag = 0U;
     adc2_proc_flag = 0U;
     adc2_capture_complete = 0U;
+    adc2_capture_error = 0U;
+    adc2_capture_error_code = HAL_ADC_ERROR_NONE;
     adc2_capture_sample_count = sample_count;
 
     /* H750 adaptation: RAM_D2 is cacheable, so prepare the full DMA range. */
@@ -107,6 +111,16 @@ HAL_StatusTypeDef ADC2_CAPTURE_FML_Start(float requested_sample_rate_hz,
 bool ADC2_CAPTURE_FML_IsActive(void)
 {
     return (adc2_capture_active != 0U);
+}
+
+bool ADC2_CAPTURE_FML_HasError(void)
+{
+    return (adc2_capture_error != 0U);
+}
+
+uint32_t ADC2_CAPTURE_FML_GetErrorCode(void)
+{
+    return adc2_capture_error_code;
 }
 
 void ADC2_CAPTURE_FML_Poll(void)
@@ -168,7 +182,10 @@ void ADC2_CAPTURE_FML_OnAdcError(ADC_HandleTypeDef *hadc)
 {
     if (hadc->Instance == ADC2)
     {
+        __HAL_TIM_DISABLE(&htim1);
         adc2_capture_active = 0U;
         adc2_capture_complete = 0U;
+        adc2_capture_error_code = HAL_ADC_GetError(hadc);
+        adc2_capture_error = 1U;
     }
 }

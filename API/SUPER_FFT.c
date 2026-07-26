@@ -1,7 +1,7 @@
 #include "SUPER_FFT.h"
 
 #include "ADC_VOFA_FML.h"
-#include "FFT_FML.h"
+#include "SUPER_FFT_FML.h"
 #include "adc.h"
 #include <math.h>
 #include <string.h>
@@ -10,7 +10,7 @@
 #define PI 3.14159265358979323846f
 #endif
 
-#define SUPER_FFT_LENGTH                 4096U
+#define SUPER_FFT_LENGTH                 SUPER_FFT_FML_LENGTH
 #define SUPER_FFT_HIGH_RATE_HZ          400000U
 #define SUPER_FFT_LOW_RATE_HZ            40000U
 #define SUPER_FFT_LOW_MIN_HZ                10U
@@ -43,7 +43,6 @@ static TIM_HandleTypeDef s_htim6;
 
 static volatile uint8_t s_dma_frame_ready;
 static volatile uint8_t s_dma_error;
-static uint8_t s_window_ready;
 static uint32_t s_block_count;
 static uint32_t s_fine_start_hz;
 static uint32_t s_fine_candidate_count;
@@ -127,7 +126,7 @@ static void super_fft_prepare_centered_data(void)
 static uint32_t super_fft_first_bin(uint32_t minimum_hz)
 {
     uint32_t first = (uint32_t)((minimum_hz * (float)SUPER_FFT_LENGTH) / s_sample_rate_hz);
-    return (first < DC_INDEX) ? DC_INDEX : first;
+    return (first < 1U) ? 1U : first;
 }
 
 static uint32_t super_fft_last_bin(uint32_t maximum_hz)
@@ -139,15 +138,7 @@ static uint32_t super_fft_last_bin(uint32_t maximum_hz)
 
 static void super_fft_accumulate_fft_power(uint32_t first, uint32_t last)
 {
-    calculate_fft_fml(s_centered_data, fft_input_buffer, fft_magnitude, fft_out,
-                      SUPER_FFT_LENGTH, SUPER_FFT_LENGTH);
-
-    for (uint32_t bin = first; bin <= last; ++bin)
-    {
-        const float re = fft_input_buffer[2U * bin];
-        const float im = fft_input_buffer[(2U * bin) + 1U];
-        s_power[bin] += (re * re) + (im * im);
-    }
+    SUPER_FFT_FML_AccumulatePower(s_centered_data, first, last, s_power);
 }
 
 static float super_fft_peak_frequency(uint32_t first, uint32_t last)
@@ -296,11 +287,7 @@ HAL_StatusTypeDef SUPER_FFT_Start(void)
         return HAL_BUSY;
     }
 
-    if (s_window_ready == 0U)
-    {
-        generate_hanning_window();
-        s_window_ready = 1U;
-    }
+    SUPER_FFT_FML_InitWindow();
 
     memset(s_power, 0, sizeof(s_power));
     memset(s_fine_power, 0, sizeof(s_fine_power));

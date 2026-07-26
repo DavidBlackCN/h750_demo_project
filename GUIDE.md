@@ -27,7 +27,7 @@ AD9910_API_OutputSine(100000U, 500U);
 
 | 连接对象 | STM32H750 MCU 引脚 | 配置 |
 | --- | --- | --- |
-| ADC2 待测模拟信号 | `PA7 / ADC2_INP7` | 单端 0～3.3 V；与 DAC8830 的 SPI1_MOSI 复用，当前不可同时启用 DAC8830 |
+| ADC2 待测模拟信号 | `PA7 / ADC2_INP7` | 单端 0～3.3 V；与迁移后的 DAC8830 SPI1 引脚无复用 |
 | USB-TTL 接收端 RX | `PB6 / USART1_TX` | 固件输出，921600 baud、8N1、无流控 |
 | USB-TTL 发送端 TX（可不接） | `PB7 / USART1_RX` | 本预设不接收命令；若接入，仍须与 TX 交叉 |
 | USB-TTL 地 / 信号源地 | `GND` | 必须共地 |
@@ -174,7 +174,7 @@ phase=-115.000deg raw=-114.700deg adc1=[356,666] amp=0.500V adc2=[356,666] amp=0
 
 测试流程：
 
-1. 断电完成接线，先用示波器确认`PA1_C`和`PA7`处波形均未越过0～3.3 V。当前相位demo将PA7用作ADC2输入，不能同时启用使用PA7的DAC8830 SPI输出。
+1. 断电完成接线，先用示波器确认`PA1_C`和`PA7`处波形均未越过0～3.3 V。DAC8830 SPI 已迁至`PB3/PD7`，可与 ADC2 的 PA7 输入并存；若启动 DAC8830 波形 DMA，仍不可同时让其他任务占用 TIM4 或 DMA1 Stream2/3/4。
 2. 烧录固件并复位，输入同频正弦；建议先从10 kHz、约1 Vpp、0°相差开始。
 3. 观察连续输出的`freq`和`phase`，确认频率与信号源一致且相位结果稳定。
 4. 依次测试1 kHz、10 kHz、50 kHz、100 kHz，以及0°、90°、-90°和接近180°相差。
@@ -196,7 +196,7 @@ freq=10000.00Hz phase=45.123deg
 
 ## 方波频率测量
 
-`API/FREQ_API.*` 测频 demo 代码仍保留，但当前主任务不启动。恢复该 demo 后，输入接到 `PA0 / TIM2_CH1`：
+`API/FREQ_API.*` 方波测频代码仍保留，但当前主任务不启动。恢复该 demo 后，输入接到 `PA0 / TIM2_CH1`：
 
 ```text
 信号源方波输出 -> PA0
@@ -246,7 +246,7 @@ freq=1000000.0Hz raw=999999.867Hz mode=dma status=valid ticks=7500001 periods=10
 
 当前 TIM2 时钟来自内部 HSI 派生的 75 MHz，单点校准可以减小系统比例误差，但温漂、信号源误差和输入边沿抖动仍会影响绝对准确度；需要更高精度时应改用高精度外部时钟源。
 
-串口摘要固定每 1 s 输出一次，即使频率和状态没有变化也会继续输出；无输入时持续输出 `status=no_signal`。高频 DMA 模式会关闭 TIM2 和 DMA1 Stream5 NVIC，由主循环轮询 DMA NDTR 判断完成，避免持续扫频时出现 DMA 完成/中止/重启的中断竞态；切回低频输入捕获时自动恢复 TIM2 NVIC。
+串口摘要固定每 1 s 输出一次，即使频率和状态没有变化也会继续输出；无输入时持续输出 `status=no_signal`。USART1 摘要采用中断发送，前台不等待发送完成；发送期间若生成新摘要，只保留最新的一条待发摘要。高频 DMA 模式会关闭 TIM2 和 DMA1 Stream5 NVIC，由主循环轮询 DMA NDTR 判断完成，避免持续扫频时出现 DMA 完成/中止/重启的中断竞态；切回低频输入捕获时自动恢复 TIM2 NVIC。
 
 ## AD9226 并行采集验证 Demo
 
@@ -428,16 +428,17 @@ main.n0.val=10 FF FF FF
 若没有显示，依次检查：屏幕是否已下载正确 TFT、TTL/RS232 模式、115200 8N1、TX/RX 是否交叉、是否共地、控件名和 `vscope`。当前串口屏只能接 USART3 的 PB10/PB11，不要再并联到 USART1 的 PB6/PB7。
 # ADC2 FFT Measurement Task
 
-Current `main.c` runs one ADC2 FFT measurement while the AD9833 and AD9910 DDS
-tasks remain enabled. ADC2 input is `PA7 / ADC2_INP7`; keep the voltage within
-0-3.3 V and connect the signal-source ground to board ground. ADC2 is triggered
-by internal TIM1 TRGO and captured through DMA1 Stream1. Do not enable the
-on-chip DAC/TIM4 task or the DAC UART command task with this measurement task.
+Current `main.c` runs one ADC2 FFT measurement and waveform classification while
+the AD9833 and AD9910 DDS tasks remain enabled. ADC2 input is `PA7 / ADC2_INP7`;
+keep the voltage within 0-3.3 V and connect the signal-source ground to board
+ground. ADC2 is triggered by internal TIM1 TRGO and captured through DMA1
+Stream1. Do not enable the on-chip DAC/TIM4 task or the DAC UART command task
+with this measurement task.
 
 USART1 uses `PB6` TX and `PB7` RX at 921600 8N1. Disconnect any AD9226 wiring
 from PB6/PB7 before connecting the USB serial adapter. After reset the firmware
 captures one coarse 4096-point frame, then one final 4096-point frame near
-360-409.6 kS/s. The final UART payload is:
+360-409.6 kS/s. The peak search range is 1-100 kHz. The final UART payload is:
 
 ```text
 raw begin n=4096 fs=409556.312
@@ -448,8 +449,40 @@ spectrum begin n=2048 df=<Hz>
 fft:<bin>,<amplitude-v>
 ...
 spectrum end
-result freq=<Hz> bin=<bin> fs=<Hz> df=<Hz> closure=<cycles>
+result freq=<Hz> bin=<bin> fs=<Hz> df=<Hz> wave=<type> spec_sine=<score> spec_triangle=<score> spec_square=<score> h3=<ratio> h5=<ratio> closure=<cycles> class_fs=<Hz> class_spp=<count> class_closure=<cycles>
 ```
+
+After the final frequency frame, the task captures one additional 4096-point
+classification frame. It selects a TIM1 rate near an integer multiple of the
+measured frequency, using 8 to 1024 samples per period and minimizing residual
+cycle closure after the hardware timer divider is rounded. The classification
+sample-rate ceiling is 2 MS/s, which remains above the measurement-frame rate
+while retaining timing margin for ADC2, DMA, and the board analog front end.
+The frequency result continues to come only from the preceding final frequency
+frame. If ADC2 reports an error during any capture stage, USART1 sends
+`adc2fft error stage=coarse|final|classify adc=<code>` instead of waiting
+silently. Each capture stage also prints `adc2fft stage=coarse|final|classify`;
+if a frame has not completed after 100 ms, the same stage error diagnostic is
+sent. A square-wave source must still be conditioned to 0-3.3 V at PA7, with no
+negative undershoot or positive overshoot.
+
+The final `result` line reports `wave`, three spectral-profile scores, and
+diagnostic `h3`/`h5` ratios. Classification reads the first six visible odd
+harmonics (1st through 11th), using a three-bin neighborhood around each expected
+harmonic to tolerate residual leakage. The fundamental is used only to normalize
+the other harmonics; it is excluded from triangle/square profile matching so it
+cannot make every waveform appear sine-like. The residual odd-harmonic profile
+is compared with triangle and square profiles, while the sine score decays
+smoothly with total odd-harmonic distortion. Individual harmonic attenuation
+ratios are not used as strict thresholds. `wave=unknown` is returned for a small
+signal, weak best match, or an ambiguous best match. This classification does
+not change the peak-search or frequency-measurement path.
+
+The FFT search includes the bins that straddle both configured frequency limits.
+This is required because the actual TIM1 rate is derived from an integer divider;
+for example, 1 kHz can fall just above the nominal lower-edge bin rather than
+exactly on it. Excluding that bin would make the classifier follow a leakage
+side lobe instead of the fundamental.
 
 Only the final frame and its nonredundant 2048-bin spectrum are sent. `df` is
 no more than 100 Hz with the current clock configuration. UART output is
@@ -496,6 +529,12 @@ nearest 1 Hz differs from the last printed result.
 USART1 output uses `HAL_UART_Transmit_IT()`. The FFT task never waits for serial
 transfer completion. If a newer changed frequency arrives while USART1 is busy,
 the single pending slot is replaced with that newest value.
+
+`SUPER_FFT` uses a dedicated windowed direct-DFT FML for the searched bins. It
+keeps the same 4096-point window, power accumulation, and peak interpolation as
+the previous CFFT path, but does not link the CMSIS 4096-point CFFT tables.
+Measurement updates are therefore slower, while frequency resolution and the
+measurement algorithm remain unchanged.
 
 The initial 400 kS/s FFT searches 10 Hz through 100 kHz. Results below 12 kHz
 automatically enter the 40 kS/s low-frequency coarse and 1 Hz fine-scan path,

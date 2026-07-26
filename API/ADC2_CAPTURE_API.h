@@ -8,6 +8,8 @@
 HAL_StatusTypeDef ADC2_CAPTURE_API_Start(float requested_sample_rate_hz,
                                          uint32_t sample_count);
 bool ADC2_CAPTURE_API_HasFrame(void);
+bool ADC2_CAPTURE_API_HasError(void);
+uint32_t ADC2_CAPTURE_API_GetErrorCode(void);
 void ADC2_CAPTURE_API_ReleaseFrame(void);
 const uint16_t *ADC2_CAPTURE_API_GetRawFrame(void);
 const float *ADC2_CAPTURE_API_GetVoltageFrame(void);

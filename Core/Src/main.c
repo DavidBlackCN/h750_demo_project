@@ -24,17 +24,18 @@
 #include "usart.h"
 #include "gpio.h"
 
-#include <stdio.h>
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "AD9833_API.h"
 #include "AD9910_API.h"
-#include "SUPER_FFT.h"
+#include "ADC2_CAPTURE_API.h"
+#include "ADC2_FFT_API.h"
 
-/* ADC2 FFT task is retained but disabled while SUPER_FFT owns the main task. */
-/* #include "ADC2_CAPTURE_API.h" */
-/* #include "ADC2_FFT_API.h" */
+/* TIM2 frequency task is retained but disabled while ADC2 FFT owns the main task. */
+/* #include "FREQ_API.h" */
+
+/* ADC3 SUPER_FFT task is retained but disabled while ADC2 FFT owns the main task. */
+/* #include "SUPER_FFT.h" */
 
 /* USER CODE END Includes */
 
@@ -54,55 +55,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-volatile HAL_StatusTypeDef super_fft_start_status = HAL_ERROR;
-static uint8_t super_fft_last_frequency_valid = 0U;
-static uint32_t super_fft_last_frequency_hz = 0U;
-static char super_fft_uart_tx_buffer[48];
-static volatile uint8_t super_fft_uart_tx_active = 0U;
-static uint8_t super_fft_uart_pending = 0U;
-static float super_fft_uart_pending_frequency_hz = 0.0f;
-
-static void super_fft_uart_process(void)
-{
-  int length;
-
-  if ((super_fft_uart_tx_active != 0U) || (super_fft_uart_pending == 0U))
-  {
-    return;
-  }
-
-  length = snprintf(super_fft_uart_tx_buffer, sizeof(super_fft_uart_tx_buffer),
-                    "freq=%.3fHz\r\n",
-                    (double)super_fft_uart_pending_frequency_hz);
-  if ((length <= 0) || (length >= (int)sizeof(super_fft_uart_tx_buffer)))
-  {
-    super_fft_uart_pending = 0U;
-    return;
-  }
-
-  if (HAL_UART_Transmit_IT(&huart1, (uint8_t *)super_fft_uart_tx_buffer,
-                           (uint16_t)length) == HAL_OK)
-  {
-    super_fft_uart_tx_active = 1U;
-    super_fft_uart_pending = 0U;
-  }
-}
-
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    super_fft_uart_tx_active = 0U;
-  }
-}
-
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-{
-  if (huart->Instance == USART1)
-  {
-    super_fft_uart_tx_active = 0U;
-  }
-}
+volatile HAL_StatusTypeDef adc2_fft_start_status = HAL_ERROR;
 
 /* USER CODE END PV */
 
@@ -151,10 +104,11 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_ADC3_Init();
+  MX_ADC2_Init();
+  MX_TIM1_Init();
   MX_USART1_UART_Init();
-  /* ADC2 FFT task disabled: MX_ADC2_Init(); */
-  /* ADC2 FFT task disabled: MX_TIM1_Init(); */
+  /* TIM2 frequency task disabled: MX_TIM2_Init(); */
+  /* ADC3 SUPER_FFT task disabled: MX_ADC3_Init(); */
   /* USER CODE BEGIN 2 */
   if (AD9833_API_Init() != HAL_OK)
   {
@@ -164,8 +118,8 @@ int main(void)
   AD9833_API_OutputWaveform(1000.0f, AD9833_OUT_SINUS);
   AD9910_API_OutputSine(100000U, 300U);
 
-  super_fft_start_status = SUPER_FFT_Start();
-  if (super_fft_start_status != HAL_OK)
+  adc2_fft_start_status = ADC2_FFT_API_Start();
+  if (adc2_fft_start_status != HAL_OK)
   {
     Error_Handler();
   }
@@ -179,29 +133,10 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    SUPER_FFT_Process();
-    super_fft_uart_process();
-    if (SUPER_FFT_IsReady())
-    {
-      float measured_frequency_hz = SUPER_FFT_GetFrequencyHz();
-      uint32_t rounded_frequency_hz = (uint32_t)(measured_frequency_hz + 0.5f);
-
-      if ((super_fft_last_frequency_valid == 0U) ||
-          (rounded_frequency_hz != super_fft_last_frequency_hz))
-      {
-        super_fft_uart_pending_frequency_hz = measured_frequency_hz;
-        super_fft_uart_pending = 1U;
-        super_fft_last_frequency_hz = rounded_frequency_hz;
-        super_fft_last_frequency_valid = 1U;
-      }
-
-      if (SUPER_FFT_Start() != HAL_OK)
-      {
-        Error_Handler();
-      }
-    }
-    /* ADC2 FFT task disabled: adc2_proc(); */
-    /* ADC2 FFT task disabled: ADC2_FFT_API_Process(); */
+    adc2_proc();
+    ADC2_FFT_API_Process();
+    /* TIM2 frequency task disabled: FREQ_API_Process(); */
+    /* ADC3 SUPER_FFT task disabled: SUPER_FFT_Process(); */
   }
   /* USER CODE END 3 */
 }
