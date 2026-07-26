@@ -37,7 +37,8 @@ static dac_wave_config_t dac_wave_config = {
     1000.0f,
     1.0f,
     DAC_WAVE_ZERO_AXIS_V,
-    1000.0f * (float)DAC_WAVE_BUFFER_LENGTH
+    1000.0f * (float)DAC_WAVE_BUFFER_LENGTH,
+    DAC_WAVE_BUFFER_LENGTH
 };
 
 static float dac_clampf(float value, float min_value, float max_value)
@@ -81,9 +82,29 @@ static uint32_t *dac_wave_get_buffer(dac_wave_type_t type)
     }
 }
 
-static float dac_wave_norm(dac_wave_type_t type, uint32_t index)
+static uint32_t dac_wave_select_sample_count(float frequency_hz)
 {
-    float phase = (float)index / (float)DAC_WAVE_BUFFER_LENGTH;
+    uint32_t sample_count = (uint32_t)(DAC_WAVE_MAX_UPDATE_RATE_HZ /
+                                       frequency_hz);
+
+    if (sample_count > DAC_WAVE_BUFFER_LENGTH)
+    {
+        sample_count = DAC_WAVE_BUFFER_LENGTH;
+    }
+
+    if (sample_count < DAC_WAVE_MIN_SAMPLES_PER_CYCLE)
+    {
+        return 0U;
+    }
+
+    return sample_count;
+}
+
+static float dac_wave_norm(dac_wave_type_t type,
+                           uint32_t index,
+                           uint32_t sample_count)
+{
+    float phase = (float)index / (float)sample_count;
 
     switch (type)
     {
@@ -91,7 +112,7 @@ static float dac_wave_norm(dac_wave_type_t type, uint32_t index)
         return arm_sin_f32(DAC_WAVE_TWO_PI * phase);
 
     case DAC_USER_WAVE_SQUARE:
-        return (index < (DAC_WAVE_BUFFER_LENGTH / 2U)) ? 1.0f : -1.0f;
+        return (index < (sample_count / 2U)) ? 1.0f : -1.0f;
 
     case DAC_USER_WAVE_TRIANGLE:
         if (phase < 0.25f)
@@ -113,20 +134,22 @@ static float dac_wave_norm(dac_wave_type_t type, uint32_t index)
 static void dac_wave_fill_buffer(uint32_t *buffer,
                                  dac_wave_type_t type,
                                  float vpp,
-                                 float offset_v)
+                                 float offset_v,
+                                 uint32_t sample_count)
 {
     float amplitude_v = dac_clampf(vpp, 0.0f, DAC_WAVE_REF_VOLTAGE) * 0.5f;
     float center_v = dac_clampf(offset_v, 0.0f, DAC_WAVE_REF_VOLTAGE);
 
-    for (uint32_t i = 0U; i < DAC_WAVE_BUFFER_LENGTH; i++)
+    for (uint32_t i = 0U; i < sample_count; i++)
     {
-        float voltage = center_v + (amplitude_v * dac_wave_norm(type, i));
+        float voltage = center_v + (amplitude_v * dac_wave_norm(type, i,
+                                                                 sample_count));
         buffer[i] = dac_voltage_to_code(voltage);
     }
 
     if ((SCB->CCR & SCB_CCR_DC_Msk) != 0U)
     {
-        SCB_CleanDCache_by_Addr(buffer, DAC_WAVE_BUFFER_LENGTH * sizeof(buffer[0]));
+        SCB_CleanDCache_by_Addr(buffer, sample_count * sizeof(buffer[0]));
     }
 }
 
@@ -221,6 +244,7 @@ HAL_StatusTypeDef DAC_Waveform_StartChannel(uint32_t channel,
     uint32_t *buffer;
     float effective_vpp;
     float effective_offset_v;
+    uint32_t sample_count;
 
     if ((frequency_hz <= 0.0f) ||
         ((channel != DAC_CHANNEL_1) && (channel != DAC_CHANNEL_2)))
@@ -230,6 +254,12 @@ HAL_StatusTypeDef DAC_Waveform_StartChannel(uint32_t channel,
 
     buffer = dac_wave_get_buffer(type);
     if (buffer == NULL)
+    {
+        return HAL_ERROR;
+    }
+
+    sample_count = dac_wave_select_sample_count(frequency_hz);
+    if (sample_count == 0U)
     {
         return HAL_ERROR;
     }
@@ -253,7 +283,8 @@ HAL_StatusTypeDef DAC_Waveform_StartChannel(uint32_t channel,
     requested_config.frequency_hz = frequency_hz;
     requested_config.vpp = effective_vpp;
     requested_config.offset_v = effective_offset_v;
-    requested_config.sample_rate_hz = frequency_hz * (float)DAC_WAVE_BUFFER_LENGTH;
+    requested_config.sample_rate_hz = frequency_hz * (float)sample_count;
+    requested_config.samples_per_cycle = sample_count;
 
     status = dac_wave_calculate_timer_config(requested_config.sample_rate_hz, &timer_config);
     if (status != HAL_OK)
@@ -261,7 +292,8 @@ HAL_StatusTypeDef DAC_Waveform_StartChannel(uint32_t channel,
         return status;
     }
 
-    dac_wave_fill_buffer(buffer, type, effective_vpp, effective_offset_v);
+    dac_wave_fill_buffer(buffer, type, effective_vpp, effective_offset_v,
+                          sample_count);
     dac_wave_apply_timer_config(&timer_config);
     hdac1.ErrorCode &= ~(HAL_DAC_ERROR_DMA | HAL_DAC_ERROR_DMAUNDERRUNCH1 |
                          HAL_DAC_ERROR_DMAUNDERRUNCH2);
@@ -269,7 +301,7 @@ HAL_StatusTypeDef DAC_Waveform_StartChannel(uint32_t channel,
     status = HAL_DAC_Start_DMA(&hdac1,
                                channel,
                                buffer,
-                               DAC_WAVE_BUFFER_LENGTH,
+                               sample_count,
                                DAC_ALIGN_12B_R);
     if (status != HAL_OK)
     {
@@ -333,5 +365,5 @@ const uint32_t *DAC_Waveform_GetBuffer(void)
 
 uint32_t DAC_Waveform_GetBufferLength(void)
 {
-    return DAC_WAVE_BUFFER_LENGTH;
+    return dac_wave_config.samples_per_cycle;
 }

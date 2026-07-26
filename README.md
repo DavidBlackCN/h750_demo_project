@@ -1,6 +1,6 @@
 # STM32H750 电赛信号题模板项目
 
-当前主任务同时启动 AD9833、AD9910 与片内 DAC1：AD9833 输出 1 kHz 正弦，AD9910 输出 100 kHz 正弦，DAC1_CH1 / PA4 经 TIM4 触发 DMA 输出 1 kHz 方波；USART1 可运行时修改片内 DAC 参数。
+当前主任务使用片内 DAC1_CH1 输出正弦：`PA4 / DAC1_OUT1` 输出 100 kHz、1 Vpp、1.65 V 偏置的正弦。DAC8830 直流驱动保留但当前不启动。
 
 这是一个面向电子设计竞赛信号题的 STM32H750 模板工程，目标是把常用的信号产生、采集、频谱分析和串口调试能力提前搭好，后续按题目要求快速组合业务逻辑。
 
@@ -12,8 +12,8 @@
 - AD9910 波形 API：支持幂等初始化、原始 14 位 ASF 单 Profile 正弦输出，以及按直接输出 mVpp 设置的正弦/三角波/方波；RAM 三角波和方波使用 50～1024 点自适应 polar 回放。十倍后级方案的满量程标定集中在 `HDL/AD9910_Constants.h`。
 - ADS8688 硬件 SPI 驱动：支持命令/程序寄存、单通道手动采样、量程换算和 VOFA+ FireWater 输出。
 - AD9226 12 位并行采集：TIM1 输出 1 MHz 时钟，DCMI + DMA2 采集 4096 点，支持约 1 kHz 正弦的频率、基波至五次谐波和 THD 验证。
-- DAC8830 驱动：已移植高层电压/码值接口，支持 TIM4 + DMA 驱动 SPI1 输出波形。
-- STM32H750 片上 DAC 波形输出：TIM4 触发 DAC1 CH1/CH2 的单缓冲循环 DMA，支持正弦、方波、三角波和直流；每种波形各有独立 256 点表，修改波形或参数前先停止再启动。
+- DAC8830 驱动：支持 mV 码值接口和 `I_250730` 兼容的 V 单位直流接口。
+- STM32H750 片上 DAC 波形输出：TIM4 触发 DAC1 CH1/CH2 的单缓冲循环 DMA，支持正弦、方波、三角波和直流；每种波形各有独立 256 点容量的表，高频时按 2 MS/s 上限缩短活跃点数，修改波形或参数前先停止再启动。
 - ADC1 + ADC2 双重规则同步采样：频率测量帧以1 MS/s同时触发`PA1_C / ADC1_INP1`和`PA7 / ADC2_INP7`，相位帧根据测得频率自动调整TIM1分频和采样点数。
 - CMSIS-DSP FFT：4096 点 FFT，支持汉宁窗、主峰/次峰、频率、幅值、Vpp、相位估计。
 - 二阶 IIR 低通：基于 CMSIS-DSP DF1 双二阶实现，复刻`1 / (1e-8 s² + 3e-4 s + 1)`；保留 ADC→DAC demo，可按实际采样率重新初始化。
@@ -38,9 +38,9 @@
 
 ## 默认启动流程
 
-`Core/Src/main.c` 当前不启动 ADC 采集任务。上电后先初始化并启动 AD9833 的 1 kHz 正弦与 AD9910 的 100 kHz、500 mVpp 正弦，再启动片内 `DAC1_CH1 / PA4` 的 1 kHz、1 Vpp、1.65 V 偏置方波。DAC 使用 TIM4_TRGO 和 DMA1 Stream6 的单缓冲循环 DMA；USART1 使用 PB6/PB7、921600 8N1 接收 DAC 参数命令。ADC、AD9226/DCMI、DAC8830、SPI 外设和 USART3 不启动。AD9910 初始化将 PA8 配置为软件 SCK，因此不能同时将 PA8/TIM1_CH1 用作外部时钟输出。
+`Core/Src/main.c` 当前初始化 GPIO、DMA、DAC1 和 TIM4，并调用 `DAC_Waveform_StartChannel(DAC_CHANNEL_1, DAC_USER_WAVE_SINE, 100000.0f, 1.0f, 1.65f)`。输出引脚为 `PA4 / DAC1_OUT1`，目标为 100 kHz、1 Vpp、中心 1.65 V。`DAC_Waveform_StartChannel()` 在高频时将活跃表缩短为 20 点，将更新率设为 2 MS/s；TIM4 以 240 MHz 计数时钟、120 个时钟周期每点精确运行。该配置需要上板检查 DAC 欠载、幅度和失真。DAC8830、SPI1、ADC、DDS、USART、AD9226/DCMI 和其他 demo 均不启动。
 
-USART1 命令以回车结束，格式为 `波形编号 频率Hz Vpp 偏置V`。波形编号：`0` 正弦、`1` 方波、`2` 三角波、`3` 直流。例如发送 `2 1000 1.0 1.65` 会输出 1 kHz、1 Vpp、1.65 V 偏置三角波；固件回复 `ok` 或 `err`。更新会短暂停止并重启片内 DAC DMA，AD9833 和 AD9910 不受影响。
+模块资料规定数字电源 `VCC=+5 V`。STM32H750 GPIO 为 3.3 V，连接前应确认模块端逻辑高门限，首次验收建议在 `SCLK`、`SDI`、`CS1/CS2` 加 3.3 V 到 5 V 电平转换；禁止将模块侧 5 V 信号回灌至 STM32。
 
 如需在 `while` 前启动 DDS，可调用 `AD9833_API_OutputWaveform(frequency_hz, waveform)` 或 `AD9910_API_OutputSine(frequency_hz, amplitude_mvpp)`；两者都是 `void` 封装，内部完成各自所需的初始化和输出配置。
 
@@ -65,14 +65,23 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 - ADC2：PA7 / ADC2_INP7；当前独立采集链路由 TIM1_TRGO 触发，目标/实际均为 1 MS/s，10 bit、1024 点 halfword normal DMA（DMA1 Stream1）。
 - ADC3：PC2_C / ADC3_INP0；保留给 `ADC_VOFA_API_*` 的端口预设，当前主任务不初始化。
 - 当前 CubeMX 生成时钟：CPU 480 MHz、AXI/AHB 240 MHz；其他会变的时钟和资源事实见 `STATUS.md`。
-- 片上 DAC1：PA4 / DAC1_OUT1；当前主任务使用 TIM4_TRGO、DMA1 Stream6 和 256 点单缓冲循环 DMA 输出 1 kHz 正弦。IIR demo 仍保留其独立的 TIM4_TRGO、1 MS/s、1024 点半缓冲调度。
+- 片上 DAC1：PA4 / DAC1_OUT1；当前主任务使用 TIM4_TRGO、DMA1 Stream6 和 20 点循环 DMA 输出 100 kHz、1 Vpp、1.65 V 偏置正弦，更新率为 2 MS/s。IIR demo 仍保留其独立的 TIM4_TRGO、1 MS/s、1024 点半缓冲调度。
 - ADC 采样：IIR demo 使用 12 bit、TIM1 TRGO、循环 DMA；当前端口预设使用 ADC1 10 bit、TIM1 TRGO 和 normal DMA。切换回双 ADC 测频/相位或 IIR 任务时须恢复对应 `.ioc` 配置。
 - AD9833：`FSYNC/CS=PA1`、`SDATA=PH4`、`SCLK=PH5`。本板封装中 PA1 与 PA1_C 是独立焊盘；ADC1 使用 PA1_C，ADC 直连开关保持打开即可与 PA1 的 AD9833 片选并存。
 - AD9910：见 `Core/Inc/main.h` 中 `MRT/PF0/PF1/PF2/IUP/CSN/SDI/SCK9` 宏。
-- DAC8830：默认 `CS1=PE2`、`CS2=PE0`、`SDI=PD7/SPI1_MOSI`、`SCLK=PB3/SPI1_SCK`；当前 DMA demo 使用 TIM4 产生 2.5 MS/s 更新节拍，不占用 ADC2 的 `PA7` 或 DAC1_CH2 的 `PA5`。
+- DAC8830：默认 `CS1=PE2`、`CS2=PE0`、`SDI=PD7/SPI1_MOSI`、`SCLK=PB3/SPI1_SCK`；当前 DMA demo 使用 TIM4 产生 1.2 MS/s 更新节拍，不占用 ADC2 的 `PA7` 或 DAC1_CH2 的 `PA5`。
 - ADS8688：`CS=PB12`、`RST_PD=PC4`、`SCK=PB13/SPI2_SCK`、`SDO=PB14/SPI2_MISO`、`SDI=PB15/SPI2_MOSI`；SPI Mode 1，SCK 17 MHz。
 
 更多接线和开发注意事项见 [GUIDE.md](GUIDE.md)，当前状态见 [STATUS.md](STATUS.md)。
+
+## DAC8830 Default Task
+
+The current `main.c` initializes GPIO, DMA, TIM4, and SPI1, then starts the
+DAC8830 DMA sine demonstration. Both DAC8830 chip selects are asserted by the
+DMA path, so both connected DAC8830 outputs receive the same 1 kHz, 1 Vpp
+sine. The module must be configured for the unipolar `+5 V` range. Per the
+module manual, the driver uses a 0-5.000 V transfer range, so the sine is
+centered at 2.500 V and spans approximately 2.000 V to 3.000 V.
 
 ## ADC2 FFT Measurement And Waveform Classification
 

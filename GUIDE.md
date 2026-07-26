@@ -1,4 +1,16 @@
-# 当前主任务：DDS 与片内 DAC 同时输出
+# 当前主任务：片内 DAC 100 kHz 正弦输出
+
+`main.c` 当前启动片内 DAC1_CH1：`PA4 / DAC1_OUT1` 使用 TIM4_TRGO 与 DMA1 Stream6，
+调用 `DAC_Waveform_StartChannel(DAC_CHANNEL_1, DAC_USER_WAVE_SINE, 100000.0f, 1.0f, 1.65f)`
+输出 100 kHz、1 Vpp、1.65 V 偏置正弦。高频模式将活跃表缩短为 20 点，更新率为 2 MS/s；
+该模式用于高频尝试，需示波器确认实际幅度、失真和 DAC DMA 欠载状态。
+
+模块资料要求 `VCC=+5 V`。DAC8830 芯片在 5 V 供电时的数字输入高电平门限应按 5 V
+逻辑核验，STM32H750 的 3.3 V GPIO 不能默认视为满足该门限。首次上板应使用
+3.3 V 到 5 V 电平转换器，或用逻辑分析仪确认模块端 `SCLK/SDI/CS` 高电平满足要求；
+不要把 5 V 信号直接送入 STM32 引脚。
+
+# 保留任务：DDS 与片内 DAC 同时输出
 
 `main.c` 上电后启动 AD9833 的 1 kHz 正弦、AD9910 的 100 kHz、500 mVpp 正弦，以及 `DAC1_CH1 / PA4` 的 1 kHz、1 Vpp、1.65 V 偏置方波。片内 DAC 使用 TIM4_TRGO 和 DMA1 Stream6 的 256 点单缓冲循环 DMA。USART1 的 PB6/PB7 以 921600 8N1 接收片内 DAC 参数命令。当前不启动 ADC、TIM1、AD9226/DCMI、DAC8830、SPI 外设或 USART3。AD9910 会占用 `PA8` 作为软件 SCK，因此不能同时把 `PA8/TIM1_CH1` 用作外部时钟输出。
 
@@ -82,9 +94,20 @@ DAC8830_SetVoltageMvB(-1000);  // OUTB = -1.000 V
 DAC8830_WriteBoth(32768U);     // 两路直接写 16 bit 码值
 ```
 
+为兼容 `D:\I_250730` 的 DAC8830 驱动，也保留了以下以 V 为单位的接口：
+
+```c
+DAC8830_SelectUnipolar5V();
+DAC8830_Set_Direct_Current(2.5);        // 两路输出 2.500 V
+DAC8830_Set_Mode_Voltage(OUTPUT_DC, 1.0);
+```
+
+`DAC8830_Set_Wave()` 和 `DAC8830_Generate_Wave_Data()` 会在前台逐点写 SPI，
+仅用于兼容和低速调试。
+
 默认输出模式是 `DAC8830_OUTPUT_BIPOLAR_10V`。如果模块跳线不是 ±10 V，请调用对应选择函数，或用 `DAC8830_SetRangeMv(min, max)` 设置自定义量程。
 
-当前 DAC8830 正弦 demo 使用 `HDL/DAC8830_DMA.*`，由 TIM4 触发 DMA：Update 拉低 `PE2/PE0`，CH1 把 16-bit 码值写入 `SPI1->TXDR`，CH2 拉高 `PE2/PE0` 锁存输出。250 点、10 kHz 对应 2.5 MS/s，SPI1 使用 16-bit 帧，SCK 目标约 60 Mbit/s；DMA 源表必须放在 `.dma_buffer` / RAM_D2。
+DAC8830 的高频正弦 TIM4/DMA 后端已移除。当前主任务仅使用 SPI1 将直流码值写入 DAC8830；若后续重新实现波形输出，需独立验证 SPI 带宽、片选时序、DMA 触发与模拟重构滤波。
 
 ## 片上 DAC 波形输出
 
@@ -95,7 +118,7 @@ DAC8830_WriteBoth(32768U);     // 两路直接写 16 bit 码值
 - `DAC_Waveform_StartChannel(channel, type, frequency_hz, vpp, offset_v)`
 - `DAC_Waveform_Stop()`
 
-波形缓冲区长度为 256 点，输出频率由 `TIM4` 更新触发控制，输出电压限制在 0 到 3.3 V。正弦、方波、三角波和直流各自拥有一张独立 DMA 源表，使用普通循环 DMA 输出。运行中的 `Start`、`Apply` 或 `StartChannel` 返回 `HAL_BUSY`，避免改写 DMA 正在读取的表；应先调用 `DAC_Waveform_Stop()`，再以新参数启动。DMA 或 DAC 欠载错误后接口返回 `HAL_ERROR`，同样需停止后重新启动。该机制与 IIR ADC→DAC 链路使用的同侧半缓冲回写相互独立。
+波形缓冲区容量为 256 点，输出频率由 `TIM4` 更新触发控制，输出电压限制在 0 到 3.3 V。正弦、方波、三角波和直流各自拥有一张独立 DMA 源表，使用普通循环 DMA 输出；高频时 API 按 2 MS/s 上限缩短活跃点数。运行中的 `Start`、`Apply` 或 `StartChannel` 返回 `HAL_BUSY`，避免改写 DMA 正在读取的表；应先调用 `DAC_Waveform_Stop()`，再以新参数启动。DMA 或 DAC 欠载错误后接口返回 `HAL_ERROR`，同样需停止后重新启动。该机制与 IIR ADC→DAC 链路使用的同侧半缓冲回写相互独立。
 
 ## 二阶 IIR 低通
 
@@ -174,7 +197,7 @@ phase=-115.000deg raw=-114.700deg adc1=[356,666] amp=0.500V adc2=[356,666] amp=0
 
 测试流程：
 
-1. 断电完成接线，先用示波器确认`PA1_C`和`PA7`处波形均未越过0～3.3 V。DAC8830 SPI 已迁至`PB3/PD7`，可与 ADC2 的 PA7 输入并存；若启动 DAC8830 波形 DMA，仍不可同时让其他任务占用 TIM4 或 DMA1 Stream2/3/4。
+1. 断电完成接线，先用示波器确认`PA1_C`和`PA7`处波形均未越过0～3.3 V。DAC8830 SPI 已迁至`PB3/PD7`，可与 ADC2 的 PA7 输入并存；当前 DAC8830 波形任务占用 TIM4，不能与其他 TIM4 任务同时启动。
 2. 烧录固件并复位，输入同频正弦；建议先从10 kHz、约1 Vpp、0°相差开始。
 3. 观察连续输出的`freq`和`phase`，确认频率与信号源一致且相位结果稳定。
 4. 依次测试1 kHz、10 kHz、50 kHz、100 kHz，以及0°、90°、-90°和接近180°相差。

@@ -2,6 +2,10 @@
 
 #include "DAC8830_SPI.h"
 
+#include "arm_math.h"
+
+#define DAC8830_TWO_PI 6.28318530717958647692
+
 int16_t DAC8830_ZeroCode[2] = {0, 0};
 
 static DAC8830_OutputMode gDac8830OutputMode = DAC8830_OUTPUT_BIPOLAR_10V;
@@ -154,4 +158,99 @@ void DAC8830_SetVoltageMvBoth(int32_t voltageMv)
         voltageMv, DAC8830_ZeroCode[0]));
     DAC8830_WriteChannelB(DAC8830_VoltageMvToCode(
         voltageMv, DAC8830_ZeroCode[1]));
+}
+
+static uint8_t dac8830_voltage_is_in_range(double voltage)
+{
+    const DAC8830_RangeMv range = DAC8830_GetRangeMv();
+    const double min_voltage = (double)range.minMv / 1000.0;
+    const double max_voltage = (double)range.maxMv / 1000.0;
+
+    return (voltage == voltage) &&
+           (voltage >= min_voltage) &&
+           (voltage <= max_voltage);
+}
+
+static int32_t dac8830_voltage_to_mv(double voltage)
+{
+    const double millivolts = voltage * 1000.0;
+
+    return (millivolts >= 0.0) ?
+           (int32_t)(millivolts + 0.5) :
+           (int32_t)(millivolts - 0.5);
+}
+
+void DAC8830_Set_Direct_Current(double voltage)
+{
+    if (dac8830_voltage_is_in_range(voltage) == 0U)
+    {
+        return;
+    }
+
+    DAC8830_SetVoltageMvBoth(dac8830_voltage_to_mv(voltage));
+}
+
+void DAC8830_Set_Wave(double *data, uint16_t data_size)
+{
+    if (data == NULL)
+    {
+        return;
+    }
+
+    for (uint16_t index = 0U; index < data_size; ++index)
+    {
+        DAC8830_Set_Direct_Current(data[index]);
+    }
+}
+
+void DAC8830_Generate_Wave_Data(double amplitude)
+{
+    const DAC8830_OutputMode mode = DAC8830_GetOutputMode();
+
+    for (uint32_t index = 0U;
+         index < DAC8830_COMPAT_WAVE_SAMPLES;
+         ++index)
+    {
+        const double sine = (double)arm_sin_f32((float)(DAC8830_TWO_PI *
+            (double)index / (double)DAC8830_COMPAT_WAVE_SAMPLES));
+        double voltage;
+
+        if ((mode == DAC8830_OUTPUT_UNIPOLAR_5V) ||
+            (mode == DAC8830_OUTPUT_UNIPOLAR_10V))
+        {
+            /* External driver's unipolar argument is the requested Vpp. */
+            voltage = (amplitude * 0.5 * sine) + (amplitude * 0.5);
+        }
+        else
+        {
+            /* External driver's bipolar argument is the requested peak value. */
+            voltage = amplitude * sine;
+        }
+
+        DAC8830_Set_Direct_Current(voltage);
+    }
+}
+
+int DAC8830_Set_Mode_Voltage(uint8_t mode, double voltage)
+{
+    if ((mode != OUTPUT_DC) && (mode != OUTPUT_WAVE))
+    {
+        return -1;
+    }
+
+    if (dac8830_voltage_is_in_range(voltage) == 0U)
+    {
+        return -1;
+    }
+
+    if (mode == OUTPUT_DC)
+    {
+        DAC8830_Set_Direct_Current(voltage);
+    }
+    else
+    {
+        DAC8830_Generate_Wave_Data(voltage);
+    }
+
+    return 0;
 }

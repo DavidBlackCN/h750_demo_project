@@ -19,23 +19,14 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "dac.h"
 #include "dma.h"
 #include "tim.h"
-#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "AD9833_API.h"
-#include "AD9910_API.h"
-#include "ADC2_CAPTURE_API.h"
-#include "ADC2_FFT_API.h"
-
-/* TIM2 frequency task is retained but disabled while ADC2 FFT owns the main task. */
-/* #include "FREQ_API.h" */
-
-/* ADC3 SUPER_FFT task is retained but disabled while ADC2 FFT owns the main task. */
-/* #include "SUPER_FFT.h" */
+#include "DAC_FML.h"
 
 /* USER CODE END Includes */
 
@@ -55,8 +46,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-volatile HAL_StatusTypeDef adc2_fft_start_status = HAL_ERROR;
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -104,22 +93,14 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_ADC2_Init();
-  MX_TIM1_Init();
-  MX_USART1_UART_Init();
-  /* TIM2 frequency task disabled: MX_TIM2_Init(); */
-  /* ADC3 SUPER_FFT task disabled: MX_ADC3_Init(); */
+  MX_DAC1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-  if (AD9833_API_Init() != HAL_OK)
-  {
-    Error_Handler();
-  }
-  AD9910_API_Init();
-  AD9833_API_OutputWaveform(1000.0f, AD9833_OUT_SINUS);
-  AD9910_API_OutputSine(100000U, 300U);
-
-  adc2_fft_start_status = ADC2_FFT_API_Start();
-  if (adc2_fft_start_status != HAL_OK)
+  if (DAC_Waveform_StartChannel(DAC_CHANNEL_1,
+                                DAC_USER_WAVE_SINE,
+                                10000.0f,
+                                0.5f,
+                                DAC_WAVE_ZERO_AXIS_V) != HAL_OK)
   {
     Error_Handler();
   }
@@ -133,10 +114,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    adc2_proc();
-    ADC2_FFT_API_Process();
-    /* TIM2 frequency task disabled: FREQ_API_Process(); */
-    /* ADC3 SUPER_FFT task disabled: SUPER_FFT_Process(); */
   }
   /* USER CODE END 3 */
 }

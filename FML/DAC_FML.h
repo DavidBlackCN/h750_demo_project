@@ -5,6 +5,8 @@
 #include <stdint.h>
 
 #define DAC_WAVE_BUFFER_LENGTH 256U
+#define DAC_WAVE_MIN_SAMPLES_PER_CYCLE 20U
+#define DAC_WAVE_MAX_UPDATE_RATE_HZ    2000000.0f
 #define DAC_WAVE_REF_VOLTAGE   3.3f
 #define DAC_WAVE_ZERO_AXIS_V    1.65f
 
@@ -23,6 +25,7 @@ typedef struct
     float vpp;
     float offset_v;
     float sample_rate_hz;
+    uint32_t samples_per_cycle;
 } dac_wave_config_t;
 
 HAL_StatusTypeDef DAC_Waveform_Apply(dac_wave_type_t type, float frequency_hz, float vpp, float offset_v);

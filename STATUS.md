@@ -1,6 +1,15 @@
 # 项目状态
 
-## 当前主任务：ADC2 FFT 测频与波形识别（2026-07-26）
+## 当前主任务：片内 DAC 100 kHz 正弦输出（2026-07-26）
+
+- `main.c` 当前初始化 GPIO、DMA、DAC1 和 TIM4，并调用
+  `DAC_Waveform_StartChannel(DAC_CHANNEL_1, DAC_USER_WAVE_SINE, 100000.0f, 1.0f, 1.65f)`。
+  输出引脚为 `PA4 / DAC1_OUT1`，目标为 100 kHz、1 Vpp、1.65 V 偏置。片内 DAC 波形 API 的
+  高频模式将活跃表缩短为 20 点，并将更新率设为 2 MS/s；TIM4 以 240 MHz 计数时钟、120 个
+  时钟周期每点运行。尚需上板确认 DAC DMA 欠载、
+  幅度和失真。DAC8830 直流驱动保留但当前不启动。
+  输出需先核验高电平门限，首次实物调试建议加 3.3 V 到 5 V 电平转换。ADC2 FFT、DDS、
+  片内 DAC、USART 和其他 demo 保留但不启动。
 
 - `main.c` 当前初始化 GPIO、DMA、ADC2、TIM1 和 USART1；上电后运行一次 `ADC2_FFT_API_Start()`，主循环执行 `adc2_proc()` 与 `ADC2_FFT_API_Process()`。模拟输入为 `PA7 / ADC2_INP7`，必须共地并限制为 0～3.3 V。该任务先测频并选择最终采样率，再输出一次原始波形、半边频谱和最终频率；最终结果还输出 `wave=sine|triangle|square|unknown` 与 `h3`/`h5` 谐波比。AD9833 仍输出 1 kHz 正弦，AD9910 仍输出 100 kHz / 300 mVpp 正弦。TIM2 方波测频调用保留为注释，未启动。
 
@@ -37,14 +46,12 @@
 - DAC8830 驱动已接入构建，新增文件：
   - `HDL/DAC8830.h`
   - `HDL/DAC8830.c`
-  - `HDL/DAC8830_DMA.h`
-  - `HDL/DAC8830_DMA.c`
   - `HDL/DAC8830_SPI.h`
   - `HDL/DAC8830_SPI.c`
 - 二阶 IIR 低通与 ADC→DAC 主任务已编译、烧录并上板验证：`FML/IIR_FML.*`按双线性变换复刻`1 / (1e-8 s² + 3e-4 s + 1)`；`FML/IIR_ADDA_FML.*`使用 ADC1/DAC1 的 1024 点循环 DMA、同侧空闲半块回写和 D-Cache 维护，以 1 MS/s 运行。修复前版本已实测 1 kHz 交流增益接近理论值但出现严重可见失真；修复后 1 kHz PA4 原生 Vpp 重复读数标准差降至约 0.011 V，长窗波形导出仍受 USB 二进制块截断限制。
 
 ## 当前主程序行为
-- 片内 DAC 波形任务及其串口参数命令代码均保留，但当前 ADC2 FFT 主任务未启动 DAC、TIM4 或其 DMA。DAC8830 的硬件 SPI 已迁至 `PB3/SPI1_SCK` 和 `PD7/SPI1_MOSI`，片选仍为 `PE2/PE0`，不再与 ADC2 的 PA7 或 DAC1_CH2 的 PA5 复用。DAC8830 DMA 波形输出仍独占 TIM4 与 DMA1 Stream2/3/4；因此它可与当前 ADC2 FFT（TIM1、DMA1 Stream1）并存，但不能与使用这些 DMA 流或 TIM4 的片内 DAC、ADC3 SUPER_FFT、USART3 DMA 任务同时启动。
+- 片内 DAC 波形任务及其串口参数命令代码均保留，但当前 DAC8830 主任务未启动片内 DAC、ADC 或 USART。DAC8830 的硬件 SPI 已迁至 `PB3/SPI1_SCK` 和 `PD7/SPI1_MOSI`，片选仍为 `PE2/PE0`，不再与 ADC2 的 PA7 或 DAC1_CH2 的 PA5 复用。当前 DAC8830 波形使用 TIM4 和 DMA1 Stream2/3/4，不与其他 TIM4 或这些 DMA 流的任务同时启动。
 
 - 当前主任务运行独立 ADC2 采集链路：上电后启动 AD9833、AD9910 的 1 kHz 正弦，再挂接 ADC2 DMA 并启动 TIM1；采满 1024 点后，DMA 回调仅置标志，主循环调用 `adc2_proc()` 按参考工程流程换算并发送。`ADC_VOFA_API_Process()` 未被调用。已于 2026-07-25 编译、链接通过；尚未烧录或上板。
 - 已提供可由应用在 `while` 前显式调用的 `void` 输出封装：`AD9833_API_OutputWaveform(frequency_hz, waveform)` 写 FREQ0/PHASE0/波形模式并释放 RESET；`AD9910_API_OutputSine(frequency_hz, amplitude_mvpp)` 直接包装 `AD9910_output_sine()`。当前 `main.c` 分别以 1 kHz 和 2 kHz 调用这两个输出封装。
@@ -59,7 +66,6 @@
 - `HDL/AD9910.*`：AD9910 GPIO、寄存器写入和 Profile 设置基础代码；`HDL/AD9910_Constants.h` 集中定义 ASF 上限与固定十倍后级的满量程标定参数。
 - `HDL/ADS8688.*`：ADS8688 SPI2 命令、程序寄存、量程和手动转换驱动。
 - `HDL/DAC8830.*`：DAC8830 双通道写码值、毫伏输出、量程选择、零码校准偏移，底层使用 SPI1 硬件发送。
-- `HDL/DAC8830_DMA.*`：TIM4 + DMA 波形输出，DMA1 Stream2 拉低 CS、Stream3 写 SPI1 TXDR、Stream4 拉高 CS；这些资源不可与同流/同定时器任务并用。
 - `FML/DAC_FML.*`：片上 DAC 波形 DMA 输出。
 - `FML/ADC_FML.*`：双ADC同步DMA缓冲、校准、帧重启、回调状态和DCache维护。
 - `FML/FFT_FML.*`：4096 点 FFT、窗函数、峰值和相位基础计算。
@@ -150,9 +156,9 @@
 - 2026-07-17确认实际ADC2接线为PA7，原软件错配为PA2/ADC2_INP14，已更正为PA7/ADC2_INP7。DAC8830 的 SPI1_MOSI 已迁至 PD7，因此 ADC2 与 DAC8830 的数据引脚不再复用。
 - 100 kHz下0.5°对应约13.9 ns；两路输入保护、偏置、RC和走线必须尽量一致，否则模拟链路相差会超过软件误差预算。
 - AD9910 当前由主任务在 `while` 前完成幂等基础初始化，但不启动 DDS 波形。本次从 `h750_demo_project_2025g` 迁回幂等初始化、原始 ASF 正弦接口和统一标定常量；`AD9910_output_sine()` 的幅度语义为固定十倍后级的末级目标 Vpp，满量程为 `AD9910_OUTPUT_FULL_SCALE_MVPP`，因此在当前未接后级的 demo 接线中不应直接调用。既有正弦波、RAM 方波和 RAM 三角波实测记录仍适用于 `AD9910_API_StartWaveform()` 的直接输出语义；RAM 路径保持在50～1024点间搜索频率误差最小且点数最多的时序，配置为先禁用、装载后再使能，CFR1[16] 选择正弦输出，以90°/270°相位映射正负样本。新增 API 仅完成编译验证，尚未在本主分支上板复测。
-- DAC8830 模块的软件换算固定为 ±10 V，原正弦 demo 参数为 10 kHz、1 Vpp、250 点；该 demo 当前不由主程序启动。
-- SPI1 初始化已配置为 Master、TX-only、16-bit、MSB first、CPOL low、CPHA 1-edge、软件 NSS、/2 分频；当前 SPI123 时钟改用 PLL3，目标 120 MHz，SCK 约 60 Mbit/s。
-- DAC8830 正弦模块使用 250 点表和 TIM4 DMA 定时，目标更新率 2.5 MS/s；该链路当前不运行，重新启用后仍需用示波器或逻辑分析仪确认 10 kHz 输出和阶梯/毛刺情况。
+- DAC8830 模块的量程换算已按 V1.1 使用手册修订：±10 V、±5 V、0~10 V 和 0~5 V 分别使用对应的 20 V、10 V、10 V 和 5 V 跨度；当前主任务使用 0~5 V 档。原正弦 demo 已由主程序启动。
+- SPI1 初始化配置为 Master、TX-only、16-bit、MSB first、CPOL low、CPHA 1-edge、软件 NSS、/4 分频；SCK 约 48 MHz，低于模块规定的 50 MHz 上限。
+- DAC8830 高速正弦 TIM4/DMA 后端与其应用入口已移除。DAC8830 直流驱动保留但当前不启动；后续若恢复波形输出，应新建并单独完成 SPI 时序、DMA 与模拟滤波验收。
 
 ## 工作区注意
 
