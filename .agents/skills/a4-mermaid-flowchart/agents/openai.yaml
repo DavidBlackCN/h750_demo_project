@@ -1,0 +1,4 @@
+interface:
+  display_name: "A4 Mermaid Flowcharts"
+  short_description: "Create A4 landscape Mermaid flowcharts and SVGs"
+  default_prompt: "Use $a4-mermaid-flowchart to create or refine an A4 landscape Mermaid flowchart."

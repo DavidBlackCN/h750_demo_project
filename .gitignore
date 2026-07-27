@@ -3,3 +3,4 @@ artifacts
 mx.scratch
 Tools/config/local.ps1
 !.settings
+nuedc-report-writer/
