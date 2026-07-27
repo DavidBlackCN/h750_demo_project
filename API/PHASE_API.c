@@ -2,7 +2,6 @@
 
 #include "ADC_BLL.h"
 #include "ADC_FML.h"
-#include "FFT_FML.h"
 #include "PHASE_BLL.h"
 #include "USART_FML.h"
 #include "adc.h"
@@ -35,7 +34,7 @@ static HAL_StatusTypeDef phase_start_frequency_capture(void)
 
     ADC_Dual_SetDiscoverySampling();
     s_phase_state = PHASE_API_MEASURE_FREQUENCY;
-    status = ADC_Dual_StartCaptureLength(FFT_LENGTH);
+    status = ADC_Dual_StartCaptureLength(ADC1_FREQ_BLOCK_LENGTH);
     if (status == HAL_OK)
     {
         s_capture_start_tick = HAL_GetTick();
@@ -46,11 +45,18 @@ static HAL_StatusTypeDef phase_start_frequency_capture(void)
 
 HAL_StatusTypeDef Phase_API_Init(void)
 {
+    HAL_StatusTypeDef status;
+
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
     DWT->CYCCNT = 0U;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-    generate_hanning_window();
-    return phase_start_frequency_capture();
+    (void)Usart_Send_ComputerAsync(&huart1, "phase boot\r\n");
+    status = phase_start_frequency_capture();
+    if (status != HAL_OK)
+    {
+        (void)Usart_Send_ComputerAsync(&huart1, "phase start error\r\n");
+    }
+    return status;
 }
 
 static void phase_poll_capture(void)
@@ -91,15 +97,15 @@ static void phase_poll_capture(void)
                  (unsigned long)hadc1.Instance->ISR,
                  (unsigned long)ADC12_COMMON->CCR,
                  (unsigned long)HAL_DMA_GetError(hadc1.DMA_Handle));
-        (void)Usart_Send_Computer(&huart1, message);
+        (void)Usart_Send_ComputerAsync(&huart1, message);
 
         (void)HAL_TIM_Base_Stop(&htim1);
         (void)HAL_ADCEx_MultiModeStop_DMA(&hadc1);
         s_capture_active = 0U;
         if (phase_start_frequency_capture() != HAL_OK)
         {
-            (void)Usart_Send_Computer(&huart1,
-                                      "phase timeout restart failed\r\n");
+            (void)Usart_Send_ComputerAsync(&huart1,
+                                           "phase timeout restart failed\r\n");
         }
     }
 }
@@ -136,7 +142,7 @@ void Phase_API_Process(void)
                 snprintf(message, sizeof(message),
                          "phase frequency invalid freq=%.2fHz\r\n",
                          s_measured_frequency_hz);
-                (void)Usart_Send_Computer(&huart1, message);
+                (void)Usart_Send_ComputerAsync(&huart1, message);
                 restart_status = phase_start_frequency_capture();
             }
             else
@@ -171,7 +177,19 @@ void Phase_API_Process(void)
                          "freq=%.2fHz phase=%.3fdeg\r\n",
                          phase_result.frequency_hz,
                          phase_result.phase_difference_deg);
-                (void)Usart_Send_Computer(&huart1, message);
+                (void)Usart_Send_ComputerAsync(&huart1, message);
+            }
+            else
+            {
+                snprintf(message, sizeof(message),
+                         "phase invalid freq=%.2fHz vpp=%.3f/%.3f quality=%.4f/%.4f closure=%.4f\r\n",
+                         s_measured_frequency_hz,
+                         phase_result.channel1_vpp,
+                         phase_result.channel2_vpp,
+                         phase_result.channel1_fit_quality,
+                         phase_result.channel2_fit_quality,
+                         s_coherent_config.closure_error_deg);
+                (void)Usart_Send_ComputerAsync(&huart1, message);
             }
 
             restart_status = phase_start_frequency_capture();
@@ -181,7 +199,7 @@ void Phase_API_Process(void)
         {
             snprintf(message, sizeof(message),
                      "phase adc restart error=%u\r\n", (unsigned int)restart_status);
-            (void)Usart_Send_Computer(&huart1, message);
+            (void)Usart_Send_ComputerAsync(&huart1, message);
         }
     }
 }

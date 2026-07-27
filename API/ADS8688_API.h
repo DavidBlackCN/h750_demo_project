@@ -6,5 +6,6 @@
 HAL_StatusTypeDef ADS8688_API_Init(void);
 void ADS8688_API_Process(void);
 uint32_t ADS8688_API_GetOutputErrorCount(void);
+uint32_t ADS8688_API_GetCaptureErrorCount(void);
 
 #endif

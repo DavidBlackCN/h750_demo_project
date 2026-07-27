@@ -1,8 +1,6 @@
 #include "PHASE_BLL.h"
 
 #include "ADC_FML.h"
-#include "FFT_FML.h"
-#include "arm_math.h"
 #include <math.h>
 
 #define PHASE_PI                         3.14159265358979323846f
@@ -18,9 +16,6 @@
 #define PHASE_TRIANGLE_MIN_FIT_QUALITY       0.94f
 #define PHASE_TRIANGLE_MIN_CORRELATION       0.98f
 #define PHASE_LAG_GOLDEN_ITERATIONS            14U
-
-_Static_assert(ADC1_FREQ_BLOCK_LENGTH == FFT_LENGTH,
-               "Dual ADC frame length must match the FFT length");
 
 typedef struct
 {
@@ -361,7 +356,7 @@ static float phase_refine_frequency(const float *channel1,
                                     float coarse_frequency_hz)
 {
     const float golden_ratio = 0.61803398875f;
-    const float bin_width = sample_rate_hz / (float)FFT_LENGTH;
+    const float bin_width = sample_rate_hz / (float)ADC1_FREQ_BLOCK_LENGTH;
     float left;
     float right;
     float x1;
@@ -417,6 +412,106 @@ static float phase_refine_frequency(const float *channel1,
     return 0.5f * (left + right);
 }
 
+static float phase_dft_bin_power(const float *channel1,
+                                 const float *channel2,
+                                 uint32_t length,
+                                 uint32_t bin)
+{
+    const float phase_step = -2.0f * PHASE_PI * (float)bin / (float)length;
+    const float step_cos = cosf(phase_step);
+    const float step_sin = sinf(phase_step);
+    float oscillator_cos = 1.0f;
+    float oscillator_sin = 0.0f;
+    float real1 = 0.0f;
+    float imaginary1 = 0.0f;
+    float real2 = 0.0f;
+    float imaginary2 = 0.0f;
+
+    for (uint32_t index = 0U; index < length; ++index)
+    {
+        float next_cos;
+
+        if ((index & 0x3FU) == 0U)
+        {
+            const float exact_phase = phase_step * (float)index;
+
+            oscillator_cos = cosf(exact_phase);
+            oscillator_sin = sinf(exact_phase);
+        }
+
+        real1 += channel1[index] * oscillator_cos;
+        imaginary1 += channel1[index] * oscillator_sin;
+        real2 += channel2[index] * oscillator_cos;
+        imaginary2 += channel2[index] * oscillator_sin;
+
+        next_cos = oscillator_cos * step_cos - oscillator_sin * step_sin;
+        oscillator_sin = oscillator_cos * step_sin + oscillator_sin * step_cos;
+        oscillator_cos = next_cos;
+    }
+
+    return real1 * real1 + imaginary1 * imaginary1 +
+           real2 * real2 + imaginary2 * imaginary2;
+}
+
+static float phase_find_coarse_frequency(const float *channel1,
+                                         const float *channel2,
+                                         uint32_t length,
+                                         float sample_rate_hz)
+{
+    uint32_t first_bin = (uint32_t)ceilf(PHASE_SEARCH_MIN_HZ *
+                                         (float)length / sample_rate_hz);
+    uint32_t last_bin = (uint32_t)floorf(PHASE_SEARCH_MAX_HZ *
+                                         (float)length / sample_rate_hz);
+    uint32_t best_bin;
+    float best_power = -1.0f;
+    float peak_bin;
+
+    if (first_bin < 1U)
+    {
+        first_bin = 1U;
+    }
+    if (last_bin >= (length / 2U))
+    {
+        last_bin = (length / 2U) - 1U;
+    }
+    if (first_bin > last_bin)
+    {
+        return 0.0f;
+    }
+
+    best_bin = first_bin;
+    for (uint32_t bin = first_bin; bin <= last_bin; ++bin)
+    {
+        float power = phase_dft_bin_power(channel1, channel2, length, bin);
+
+        if (power > best_power)
+        {
+            best_power = power;
+            best_bin = bin;
+        }
+    }
+
+    peak_bin = (float)best_bin;
+    if ((best_bin > first_bin) && (best_bin < last_bin))
+    {
+        float y0 = phase_dft_bin_power(channel1, channel2, length, best_bin - 1U);
+        float y1 = best_power;
+        float y2 = phase_dft_bin_power(channel1, channel2, length, best_bin + 1U);
+        float denominator = y0 - 2.0f * y1 + y2;
+
+        if (fabsf(denominator) > 1.0e-12f)
+        {
+            float delta = 0.5f * (y0 - y2) / denominator;
+
+            if (delta > 0.5f) delta = 0.5f;
+            if (delta < -0.5f) delta = -0.5f;
+            peak_bin += delta;
+        }
+    }
+
+    return peak_bin * sample_rate_hz / (float)length;
+}
+
 static uint8_t phase_center_inputs(float *channel1, float *channel2,
                                    uint32_t length)
 {
@@ -466,33 +561,17 @@ float Phase_BLL_EstimateFrequency(float *channel1, float *channel2,
 {
     float coarse_frequency_hz;
 
-    if ((length != FFT_LENGTH) || (sample_rate_hz <= 0.0f) ||
+    if ((length != ADC1_FREQ_BLOCK_LENGTH) || (sample_rate_hz <= 0.0f) ||
         !phase_center_inputs(channel1, channel2, length))
     {
         return 0.0f;
     }
 
-    calculate_fft(channel1, length);
+    coarse_frequency_hz = phase_find_coarse_frequency(channel1, channel2,
+                                                       length, sample_rate_hz);
+    if (coarse_frequency_hz <= 0.0f)
     {
-        uint32_t peak_index = get_fft_max_index(fft_out, FFT_LENGTH);
-        float peak_bin = (float)peak_index;
-
-        if ((peak_index > DC_INDEX) && (peak_index + 1U < FFT_LENGTH / 2U))
-        {
-            float y0 = fft_out[peak_index - 1U];
-            float y1 = fft_out[peak_index];
-            float y2 = fft_out[peak_index + 1U];
-            float denominator = y0 - 2.0f * y1 + y2;
-            if (fabsf(denominator) > 1.0e-12f)
-            {
-                float delta = 0.5f * (y0 - y2) / denominator;
-                if (delta > 0.5f) delta = 0.5f;
-                if (delta < -0.5f) delta = -0.5f;
-                peak_bin += delta;
-            }
-        }
-        coarse_frequency_hz = peak_bin * sample_rate_hz /
-                              (float)FFT_LENGTH;
+        return 0.0f;
     }
 
     return phase_refine_frequency(channel1, channel2, length,

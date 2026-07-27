@@ -21,6 +21,7 @@
 #include "main.h"
 #include "stm32h7xx_it.h"
 #include "dac.h"
+#include "usart.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
@@ -257,6 +258,14 @@ void DMA1_Stream2_IRQHandler(void)
 void DMA1_Stream6_IRQHandler(void)
 {
   HAL_DMA_IRQHandler(&hdma_dac1_ch1);
+}
+
+/**
+  * @brief This function handles DMA1 stream7 global interrupt.
+  */
+void DMA1_Stream7_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_usart1_tx);
 }
 
 /**

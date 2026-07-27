@@ -2,7 +2,10 @@
 
 #define ADS8688_SPI_TIMEOUT_MS              10U
 #define ADS8688_COMMAND_RESET                0x8500U
+#define ADS8688_COMMAND_AUTO_RESET           0xA000U
 #define ADS8688_COMMAND_MANUAL_BASE          0xC000U
+#define ADS8688_PROGRAM_AUTO_SEQUENCE        0x01U
+#define ADS8688_PROGRAM_CHANNEL_POWER_DOWN   0x02U
 #define ADS8688_PROGRAM_RANGE_CH0            0x05U
 #define ADS8688_CHANNEL_COUNT                8U
 #define ADS8688_FAST_TIMEOUT_MS               1U
@@ -102,6 +105,23 @@ HAL_StatusTypeDef ADS8688_SetChannelRange(uint8_t channel, ADS8688_Range range)
 
     return ADS8688_WriteProgramRegister(
         (uint8_t)(ADS8688_PROGRAM_RANGE_CH0 + channel), (uint8_t)range);
+}
+
+HAL_StatusTypeDef ADS8688_SetAutoScanMask(uint8_t channel_mask)
+{
+    return ADS8688_WriteProgramRegister(ADS8688_PROGRAM_AUTO_SEQUENCE,
+                                        channel_mask);
+}
+
+HAL_StatusTypeDef ADS8688_SetChannelPowerDownMask(uint8_t channel_mask)
+{
+    return ADS8688_WriteProgramRegister(ADS8688_PROGRAM_CHANNEL_POWER_DOWN,
+                                        channel_mask);
+}
+
+HAL_StatusTypeDef ADS8688_StartAutoScan(void)
+{
+    return ADS8688_WriteCommand(ADS8688_COMMAND_AUTO_RESET);
 }
 
 HAL_StatusTypeDef ADS8688_SelectManualChannel(uint8_t channel)

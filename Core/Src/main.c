@@ -18,15 +18,14 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "adc.h"
-#include "dac.h"
 #include "dma.h"
-#include "tim.h"
+#include "spi.h"
+#include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "DAC_FML.h"
+#include "ADS8688_API.h"
 
 /* USER CODE END Includes */
 
@@ -93,14 +92,10 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_DAC1_Init();
-  MX_TIM4_Init();
+  MX_SPI2_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  if (DAC_Waveform_StartChannel(DAC_CHANNEL_1,
-                                DAC_USER_WAVE_SINE,
-                                10000.0f,
-                                0.5f,
-                                DAC_WAVE_ZERO_AXIS_V) != HAL_OK)
+  if (ADS8688_API_Init() != HAL_OK)
   {
     Error_Handler();
   }
@@ -114,6 +109,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    ADS8688_API_Process();
   }
   /* USER CODE END 3 */
 }

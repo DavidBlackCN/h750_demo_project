@@ -1,6 +1,6 @@
 # STM32H750 电赛信号题模板项目
 
-当前主任务使用片内 DAC1_CH1 输出正弦：`PA4 / DAC1_OUT1` 输出 100 kHz、1 Vpp、1.65 V 偏置的正弦。DAC8830 直流驱动保留但当前不启动。
+当前主任务为 ADS8688 四通道采集 demo：模块 `CH1`～`CH4` 以每通道目标 `100 kS/s` 自动扫描采集，并通过 USART1 的 DMA 异步输出 CH1 的 VOFA+ FireWater 文本帧。片内 ADC、DAC、DDS 与其他 demo 保留但当前不启动。
 
 这是一个面向电子设计竞赛信号题的 STM32H750 模板工程，目标是把常用的信号产生、采集、频谱分析和串口调试能力提前搭好，后续按题目要求快速组合业务逻辑。
 
@@ -10,7 +10,7 @@
 
 - AD9833 软件 SPI 驱动：支持寄存器、频率、相位和波形控制。
 - AD9910 波形 API：支持幂等初始化、原始 14 位 ASF 单 Profile 正弦输出，以及按直接输出 mVpp 设置的正弦/三角波/方波；RAM 三角波和方波使用 50～1024 点自适应 polar 回放。十倍后级方案的满量程标定集中在 `HDL/AD9910_Constants.h`。
-- ADS8688 硬件 SPI 驱动：支持命令/程序寄存、单通道手动采样、量程换算和 VOFA+ FireWater 输出。
+- ADS8688 硬件 SPI 驱动：支持命令/程序寄存、手动采样与自动扫描、量程换算和 VOFA+ FireWater 输出。
 - AD9226 12 位并行采集：TIM1 输出 1 MHz 时钟，DCMI + DMA2 采集 4096 点，支持约 1 kHz 正弦的频率、基波至五次谐波和 THD 验证。
 - DAC8830 驱动：支持 mV 码值接口和 `I_250730` 兼容的 V 单位直流接口。
 - STM32H750 片上 DAC 波形输出：TIM4 触发 DAC1 CH1/CH2 的单缓冲循环 DMA，支持正弦、方波、三角波和直流；每种波形各有独立 256 点容量的表，高频时按 2 MS/s 上限缩短活跃点数，修改波形或参数前先停止再启动。
@@ -38,7 +38,7 @@
 
 ## 默认启动流程
 
-`Core/Src/main.c` 当前初始化 GPIO、DMA、DAC1 和 TIM4，并调用 `DAC_Waveform_StartChannel(DAC_CHANNEL_1, DAC_USER_WAVE_SINE, 100000.0f, 1.0f, 1.65f)`。输出引脚为 `PA4 / DAC1_OUT1`，目标为 100 kHz、1 Vpp、中心 1.65 V。`DAC_Waveform_StartChannel()` 在高频时将活跃表缩短为 20 点，将更新率设为 2 MS/s；TIM4 以 240 MHz 计数时钟、120 个时钟周期每点精确运行。该配置需要上板检查 DAC 欠载、幅度和失真。DAC8830、SPI1、ADC、DDS、USART、AD9226/DCMI 和其他 demo 均不启动。
+`Core/Src/main.c` 当前初始化 GPIO、DMA、SPI2 和 USART1，并调用 `ADS8688_API_Init()`。主循环仅运行 `ADS8688_API_Process()`：ADS8688 自动扫描内部通道 `0`～`3`（模块 `CH1`～`CH4`），目标总转换率为 `400 kS/s`，即每通道 `100 kS/s`。每 25 组四通道样本仅发送一行 CH1 FireWater 文本，显示率为 `4 kframes/s`；该显示降采样不改变采集调度。ADC、DAC、定时器、DDS、AD9226/DCMI、SPI1 与 USART3 均不启动。
 
 模块资料规定数字电源 `VCC=+5 V`。STM32H750 GPIO 为 3.3 V，连接前应确认模块端逻辑高门限，首次验收建议在 `SCLK`、`SDI`、`CS1/CS2` 加 3.3 V 到 5 V 电平转换；禁止将模块侧 5 V 信号回灌至 STM32。
 
@@ -57,7 +57,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 ## 关键配置
 
 - MCU：STM32H750XBHx，工程名 `adc_fft_demo`。
-- USART1：PB6 TX、PB7 RX，921600 8N1；当前主任务用于片内 DAC 参数命令。PB6/PB7 与 AD9226 资源冲突，不能同时启动。
+- USART1：PB6 TX、PB7 RX，921600 8N1；当前主任务以 DMA 异步发送 CH1 FireWater 文本帧。PB6/PB7 与 AD9226 资源冲突，不能同时启动。
 - USART3：PB10 TX、PB11 RX，115200 baud，当前用于 AD9226 摘要输出。
 - AD9226：D0～D11 使用 PC6/PC7/PC8/PC9/PE4/PB6/PE5/PE6/PC10/PC12/PB5/PD2，PA8 输出 1 MHz CLK 并回接 PA6/PIXCLK，PB1→PA4、PB2→PB7 为 DCMI 同步门控回路。
 - 方波测频：PA0 / TIM2_CH1，上升沿输入捕获；TIM2 时钟当前为 75 MHz，DMA 使用 DMA1 Stream5。
@@ -70,7 +70,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 - AD9833：`FSYNC/CS=PA1`、`SDATA=PH4`、`SCLK=PH5`。本板封装中 PA1 与 PA1_C 是独立焊盘；ADC1 使用 PA1_C，ADC 直连开关保持打开即可与 PA1 的 AD9833 片选并存。
 - AD9910：见 `Core/Inc/main.h` 中 `MRT/PF0/PF1/PF2/IUP/CSN/SDI/SCK9` 宏。
 - DAC8830：默认 `CS1=PE2`、`CS2=PE0`、`SDI=PD7/SPI1_MOSI`、`SCLK=PB3/SPI1_SCK`；当前 DMA demo 使用 TIM4 产生 1.2 MS/s 更新节拍，不占用 ADC2 的 `PA7` 或 DAC1_CH2 的 `PA5`。
-- ADS8688：`CS=PB12`、`RST_PD=PC4`、`SCK=PB13/SPI2_SCK`、`SDO=PB14/SPI2_MISO`、`SDI=PB15/SPI2_MOSI`；SPI Mode 1，SCK 17 MHz。
+- ADS8688：`CS=PB12`、`RST_PD=PC4`、`SCK=PB13/SPI2_SCK`、`SDO=PB14/SPI2_MISO`、`SDI=PB15/SPI2_MOSI`；SPI Mode 1，SCK 17 MHz。当前使用 CH1～CH4 自动扫描、`+-10.24 V` 量程与每通道目标 100 kS/s。
 
 更多接线和开发注意事项见 [GUIDE.md](GUIDE.md)，当前状态见 [STATUS.md](STATUS.md)。
 
