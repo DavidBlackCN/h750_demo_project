@@ -1,6 +1,6 @@
-# 当前主任务：AD9959 四通道 100 kHz 正弦 + TIM2 测频
+# 当前主任务：AD9833 + AD9910 双正弦与串口屏并行
 
-`main.c` 当前初始化 AD9959 和 TIM2 输入捕获。AD9959 的 CH0～CH3 均为 100 kHz、幅度码 512、相位码 0；控制线为 `PA8=SCLK`、`PD4=CS`、`PD5=IO_UPDATE`、`PA12=SDIO0`、`PA6=RESET`。TIM2 通过 `PA0 / TIM2_CH1` 测量 0～3.3 V 外部方波，并在 USART1 `PB6/PB7`（921600 8N1）每秒输出一次频率摘要。AD9959 假设模块系统时钟为 500 MHz，必须按实际模块改写；5 V 数字逻辑模块应确认高电平门限或增加电平转换，且模块需按实际功耗散热。
+`main.c` 在启动阶段调用 `AD9833_API_StartSine(1000.0f, 0.0f)` 和 `AD9910_API_StartWaveform(AD9910_API_WAVE_SINE, 100000U, 300U)`，随后初始化 USART3 并持续调用 `TJC_HMI_API_Process()`。AD9833 输出 1 kHz、0 deg 正弦；AD9910 输出模块直接端 100 kHz、300 mVpp 正弦。DDS 配置不在主循环重复执行，输出由芯片自主保持，因此串口屏页面和按键处理不会打断两路输出。串口屏使用 `PB10/PB11`、115200 8N1；USART1和 VOFA+ 回显验证不在当前主任务启动。
 
 # 保留任务：DDS 与片内 DAC 同时输出
 
@@ -76,34 +76,23 @@ PI 初值集中在`API/DPLL_API.h`：目标相位`DPLL_API_TARGET_PHASE_DEG=0`�
 
 ## AD9959 四通道 DDS（按需接入）
 
-`HDL/AD9959.*` 参考 [AD9959 驱动文章](https://2048ai.net/682ae80d606a8318e8576db5.html) 的寄存器流程移植到 STM32H750 HAL：GPIO 软件串行写寄存器、CSR 通道选择、CFTW0 频率控制字、ACR 幅度控制字、CPOW0 相位控制字，最后以 `IO_UPDATE` 锁存。
+`HDL/AD9959.*` 直接移植根目录 `log.txt` 的 GPIO 软件 SPI 驱动，仅将引脚接口改为本板定义并由 CubeMX 配置为输出。它保持参考代码的 FR1、FR2、CFR 数据与寄存器写入顺序：SCLK 低电平建立 SDIO0，SCLK 上升沿发送数据；通过 `IO_Update()` 锁存。
 
-驱动没有固定开发板引脚，也不由当前 `main.c` 启动。先选择五根未占用的 3.3 V GPIO，并在应用初始化阶段传入配置；`system_clock_hz` 必须填模块实际 DDS 系统时钟。文章的参考模块使用 25 MHz 晶振和 20 倍 PLL，即 500 MHz。频率控制字按实际时钟用 64 位整数计算，不依赖文章中的固定 `8.589934592` 系数。
+参考代码固定使用 `ACC_FRE_FACTOR=8.59`，对应 25 MHz 晶振、20 倍 PLL 的 500 MHz DDS 系统时钟；模块系统时钟改变时必须按参考代码修改该系数。
 
 ```c
 #include "AD9959.h"
 
-const AD9959_Config ad9959 = {
-    .sclk_port = GPIOx, .sclk_pin = GPIO_PIN_x,
-    .cs_port = GPIOx, .cs_pin = GPIO_PIN_x,
-    .update_port = GPIOx, .update_pin = GPIO_PIN_x,
-    .sdio0_port = GPIOx, .sdio0_pin = GPIO_PIN_x,
-    .reset_port = GPIOx, .reset_pin = GPIO_PIN_x,
-    .system_clock_hz = 500000000U,
-    .sclk_half_period_nops = 8U,
-};
-
-if (AD9959_Init(&ad9959) == HAL_OK) {
-    (void)AD9959_ConfigureSingleTone(AD9959_CHANNEL_0,
-                                     1000000U, 512U, 0U);
-}
+AD9959_Init();
+AD9959_setsine(CH0, 1000000U, 512U, 0U);
+IO_Update();
 ```
 
-`AD9959_CHANNEL_0` 到 `AD9959_CHANNEL_3` 可按位或组合选择。组合选择时，所有被选通道写入相同的频率、幅度和相位；如需各通道相位不同，则依次调用每个通道。幅度码范围为 `0`～`1023`，相位码范围为 `0`～`16383` 对应 `0`～`360°`。`AD9959_ConfigureSingleTone()` 在三个寄存器都写完后只产生一次 `IO_UPDATE` 脉冲。
+`CH0` 到 `CH3` 是单通道选择值，需分别调用 `AD9959_setsine()`；幅度码范围为 `0`～`1023`，相位码范围为 `0`～`16383` 对应 `0`～`360°`。参考驱动的 `AD9959_setsine()` 只写频率、幅度和相位，调用方需在全部寄存器写完后调用一次 `IO_Update()`。
 
-当前 `main.c` 的 AD9959 + 测频 demo 使用 `PA8=SCLK`、`PD4=CS`、`PD5=IO_UPDATE`、`PA12=SDIO0`、`PA6=RESET`，将 CH0～CH3 同时配置为 `100 kHz`、幅度码 `512`、相位码 `0`。这五根线复用了未启动 AD9910 的控制 GPIO，故不能同时启动 AD9910；`PA6/PA8` 也不能同时用作 AD9226 的时钟回路。TIM2 测频输入固定为 `PA0 / TIM2_CH1`，输入须为共地的 0～3.3 V 方波。USART1 `PB6/PB7` 以 921600 8N1 每秒输出一行 `freq=...` 摘要。
+当前 `main.c` 的 AD9959 + 测频 demo 使用 `PB3=SCLK`、`PD7=SDIO0`、`PC7=CS`、`PC0=IO_UPDATE`、`PE4=RESET`、`PC1=PDC`，依次设置 CH0～CH3 为 `100 kHz`、幅度码 `464`、相位码 `0`，再统一调用一次 `IO_Update()`。在当前示波器与负载条件下，464 码按 512 码实测 276 mVpp 的比例校准，目标约 250 mVpp。PDC 在初始化中拉低以退出模块低功耗状态。PB3、PD7 与 DAC8830 硬件 SPI 冲突，PC7、PE4 复用了未启动 AD9226 的 D1、D4 GPIO；ADS8688 的 `PB13/PB14/PB15` 不被本 demo 占用。AD9910 的 `MRT=PA6`、`CSN=PD4`、`SCK=PA8`、`SDI=PA12`、`IUP=PD5` 不被本 demo 覆盖。TIM2 测频输入固定为 `PA0 / TIM2_CH1`，输入须为共地的 0～3.3 V 方波。USART1 `PB6/PB7` 以 921600 8N1 每秒输出一行 `freq=...` 摘要。
 
-模块数字侧通常为 5 V 供电，不能将其 `SDIO1`～`SDIO3` 或其他 5 V 信号直接接入 H750。当前驱动只使用 MCU 到模块的 `SDIO0` 单向写入；首次接线仍应确认 3.3 V 输出能满足模块高电平门限，必要时加入电平转换。AD9959 功耗和发热较高，须按模块实际供电与散热条件上板验收。
+模块数字侧通常为 5 V 供电，不能将其 `SDIO1`～`SDIO3` 或其他 5 V 信号直接接入 H750。当前接线只驱动 `SDIO0`；参考代码中的 `SDIO1`～`SDIO3`、`PS0`～`PS3` 未分配 MCU 引脚，必须按模块要求固定到合适逻辑电平，不能悬空。PDC 也必须连接且保持低电平；首次接线仍应确认 3.3 V 输出能满足模块高电平门限，必要时在 `SCLK/SDIO0/CS/IO_UPDATE/RESET/PDC` 加入电平转换。AD9959 功耗和发热较高，须按模块实际供电与散热条件上板验收。
 
 ## DAC8830 使用示例
 
@@ -242,7 +231,7 @@ freq=10000.00Hz phase=45.123deg
 
 ## 方波频率测量
 
-`API/FREQ_API.*` 方波测频代码已由当前主任务启动，输入接到 `PA0 / TIM2_CH1`：
+`API/FREQ_API.*` 方波测频代码保留为按需启用模块，输入接到 `PA0 / TIM2_CH1`：
 
 ```text
 信号源方波输出 -> PA0
@@ -406,77 +395,15 @@ VOFA+ 配置：
 4. 向 CH1 输入 10 kHz、1 Vpp 正弦波，检查显示的幅度和偏置。VOFA+ 横轴是输出帧序号，显示采样间隔为 250 us；采集实际调度仍为每通道 10 us。
 5. 若 VOFA+ 无数据，先检查 `PB12/PB13/PB15` 是否有 CS、SCK 和 SDI 时序，再检查 `PB14` 是否返回数据。上电应先收到 `ok`；有 `ok` 但没有四通道 `samples:` 数据时，重点检查 ADS8688 的软件 SPI 和模块供电。
 
-## 淘晶驰 TJC1060X570_011C_I 串口屏 Demo
+## 淘晶驰 TJC1060X570_011C_I 串口屏模板
 
-当前主任务使用 USART3 驱动淘晶驰 X5 系列 `TJC1060X570_011C_I`（1024×600、电容触摸）。STM32 每秒刷新一个数字控件，屏幕按钮通过串口回传命令，实现暂停/继续和清零；USART1 继续连接板载 USB 转串口用于调试。
+`HDL/TJC_HMI.*` 提供淘晶驰标准指令、文本/数值返回帧和自定义按钮帧的通信封装；`API/TJC_HMI_API.*` 提供五任务选择、参数编辑和结果展示的通用页面状态机。当前模板只记录任务和参数并显示 `RESERVED`，不启动任何题目业务、外设或波形输出。
 
-### 1. 接线与供电
+串口屏使用 USART3：`PB10 / USART3_TX -> 屏 RX`，`PB11 / USART3_RX <- 屏 TX`，三者共地，115200 8N1、TTL 电平。屏幕独立供电，不能用开发板的 3.3 V 供电；若屏 TX 为高电平，首次接入前测量并按需增加串联电阻或电平转换。
 
-| 串口屏 | STM32H750 | 说明 |
-| --- | --- | --- |
-| `RX` | `PB10 / USART3_TX` | 发送接收交叉连接 |
-| `TX` | `PB11 / USART3_RX` | 发送接收交叉连接 |
-| `GND` | 开发板 `GND` | 必须共地 |
-| `5V` | 独立 5 V 稳压电源 | 不建议由 MCU 的 3.3 V 引脚供电 |
+切换到串口屏主任务时初始化 `MX_USART3_UART_Init()`，调用 `TJC_HMI_API_Init(&huart3)`，并在主循环调用 `TJC_HMI_API_Process()`。不要与其他占用 USART3/PB10/PB11 的任务同时启动。完整的 HMI 页面、控件名、`program.s`、每个弹起事件脚本和字节码总表统一维护在 [串口屏.md](串口屏.md)。
 
-使用独立 5 V 电源给屏供电时，电源地、屏幕地和 STM32 地仍须相连。确认屏幕接口当前配置为 **TTL**，不要在 RS232 模式下直接连接 MCU。X3/X5 某些接口配置下 TX 电平可能较高；首次连接建议先测量，必要时按官方建议在“屏 TX → MCU RX”之间串联 1 kΩ 电阻。
-
-### 2. 在 USART HMI 中创建界面
-
-1. 新建工程，在“设备”中选择完整型号 `TJC1060X570_011C_I`，显示方向按实物安装选择，字符编码可保持默认；本 Demo 由 MCU 下发的文本只有 ASCII，不涉及中文编码。
-2. 将默认页面重命名为 `main`。
-3. 打开工程中的 `program.s`，写入以下上电配置；`page` 必须放在最后，因为它后面的语句不会执行：
-
-```text
-bauds=115200
-recmod=0
-bkcmd=0
-page main
-```
-
-4. 导入一个包含英文字母和数字的字库。
-5. 在 `main` 页面放置以下控件，控件名称必须完全一致，并把 `vscope` 设为“全局”：
-
-| 类型 | 控件名 | 建议初始内容 | 用途 |
-| --- | --- | --- | --- |
-| 文本 | `t0` | `WAITING` | 显示 `RUNNING` / `PAUSED` |
-| 数字 | `n0` | `0` | 显示秒计数 |
-| 按钮 | `b0` | `PAUSE` | 暂停或继续 |
-| 按钮 | `b1` | `RESET` | 计数清零 |
-
-6. 双击 `b0`，在“弹起事件”中加入：
-
-```text
-printh 5A A5 01 FF FF FF
-```
-
-7. 双击 `b1`，在“弹起事件”中加入：
-
-```text
-printh 5A A5 02 FF FF FF
-```
-
-8. 点击“编译”，先在软件模拟器中检查页面布局；再生成 TFT 文件并通过串口或 TF 卡下载到屏幕。工程型号必须和实物型号一致，否则会提示 `model does not match`。
-
-### 3. 通讯参数与验收
-
-- 波特率：115200
-- 数据格式：8N1
-- 流控：无
-- TJC 字符串指令结束符：十六进制 `FF FF FF`
-
-烧录本工程固件并给屏幕上电。约 0.8 秒后应自动进入 `main` 页面，`t0` 显示 `RUNNING`，`n0` 每秒加 1。点击 `b0` 后状态变为 `PAUSED` 且数字停止，再次点击恢复；点击 `b1` 后数字归零。
-
-STM32 发送文本和数值的实际指令分别类似：
-
-```text
-main.t0.txt="RUNNING" FF FF FF
-main.n0.val=10 FF FF FF
-```
-
-代码入口在 `API/TJC_HMI_API.c`，通用协议封装在 `HDL/TJC_HMI.c`。以后要显示测频或相位结果，可直接调用 `TJC_HMI_SetValue()` 或 `TJC_HMI_SetText()`；中文文本必须保证 MCU 源文件字节编码、USART HMI 工程编码和字库编码一致。
-
-若没有显示，依次检查：屏幕是否已下载正确 TFT、TTL/RS232 模式、115200 8N1、TX/RX 是否交叉、是否共地、控件名和 `vscope`。当前串口屏只能接 USART3 的 PB10/PB11，不要再并联到 USART1 的 PB6/PB7。
+当前主任务运行上述页面状态机。屏幕上电发送 `0x88 FF FF FF` ready 帧后，固件会进入 `home`；所有任务按钮仍只更新模板状态和页面，不启动额外题目业务。AD9833 和 AD9910 的连续正弦在整个屏幕交互期间保持输出。
 # ADC2 FFT Measurement Task
 
 Current `main.c` runs one ADC2 FFT measurement and waveform classification while

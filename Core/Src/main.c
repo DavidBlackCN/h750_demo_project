@@ -25,8 +25,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "AD9959.h"
-#include "FREQ_API.h"
+#include "AD9833_API.h"
+#include "AD9910_API.h"
+#include "TJC_HMI_API.h"
 
 /* USER CODE END Includes */
 
@@ -46,21 +47,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-static const AD9959_Config ad9959_config =
-{
-  .sclk_port = SCK9_GPIO_Port,
-  .sclk_pin = SCK9_Pin,
-  .cs_port = CSN_GPIO_Port,
-  .cs_pin = CSN_Pin,
-  .update_port = IUP_GPIO_Port,
-  .update_pin = IUP_Pin,
-  .sdio0_port = SDI_GPIO_Port,
-  .sdio0_pin = SDI_Pin,
-  .reset_port = MRT_GPIO_Port,
-  .reset_pin = MRT_Pin,
-  .system_clock_hz = AD9959_DEFAULT_SYSTEM_CLOCK_HZ,
-  .sclk_half_period_nops = 8U
-};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -108,19 +94,15 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_TIM2_Init();
-  MX_USART1_UART_Init();
+  MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-  if ((AD9959_Init(&ad9959_config) != HAL_OK) ||
-      (AD9959_ConfigureSingleTone(AD9959_CHANNEL_ALL,
-                                  100000U,
-                                  512U,
-                                  0U) != HAL_OK) ||
-      (FREQ_API_Init() != HAL_OK))
+  if ((AD9833_API_StartSine(1000.0f, 0.0f) != HAL_OK) ||
+      (AD9910_API_StartWaveform(AD9910_API_WAVE_SINE,
+                                100000U, 300U) != HAL_OK) ||
+      (TJC_HMI_API_Init(&huart3) != HAL_OK))
   {
     Error_Handler();
   }
-
   /* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
@@ -130,7 +112,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    FREQ_API_Process();
+    TJC_HMI_API_Process();
   }
   /* USER CODE END 3 */
 }

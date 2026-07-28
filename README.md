@@ -1,6 +1,6 @@
 # STM32H750 电赛信号题模板项目
 
-当前主任务为 AD9959 四通道同频输出和 TIM2 测频 demo：AD9959 的 CH0～CH3 均输出 100 kHz 正弦，TIM2 在 `PA0 / TIM2_CH1` 测量外部方波频率，并通过 USART1 周期输出测量摘要。ADS8688、片内 ADC、DAC 与其他 demo 保留但当前不启动。
+当前主任务为 AD9833 + AD9910 双正弦输出与淘晶驰串口屏并行 demo：AD9833 输出 1 kHz 正弦，AD9910 输出 100 kHz、300 mVpp 直接正弦；USART3 持续运行串口屏页面状态机。AD9959、TIM2 测频、ADC、DAC 与其他 demo 均保留但当前不启动。
 
 这是一个面向电子设计竞赛信号题的 STM32H750 模板工程，目标是把常用的信号产生、采集、频谱分析和串口调试能力提前搭好，后续按题目要求快速组合业务逻辑。
 
@@ -9,7 +9,7 @@
 - `SUPER_FFT`（按需启用）：ADC3 的 4096 点 FFT 测频模块。它使用 `PC2_C / ADC3_INP0`、DMA1 Stream3 和独立的 TIM6_TRGO；先以约 400 kS/s 粗测 10 kHz～100 kHz，低于 10 kHz 时改为约 40 kS/s 做 FFT 粗测与 1 Hz 步进细扫。当前默认主任务仍是 ADC2，`SUPER_FFT` 不会自动启动。
 
 - AD9833 软件 SPI 驱动：支持寄存器、频率、相位和波形控制。
-- AD9959 GPIO 软件串行驱动：支持四通道 CSR 选择、频率、10 位幅度和 14 位相位配置；当前默认任务将四路配置为 100 kHz 正弦。
+- AD9959 GPIO 软件 SPI 驱动：直接移植 `log.txt` 的寄存器操作与软件时序，支持参考代码中的四通道、调制和扫描接口；当前默认任务将四路配置为 100 kHz 正弦。
 - AD9910 波形 API：支持幂等初始化、原始 14 位 ASF 单 Profile 正弦输出，以及按直接输出 mVpp 设置的正弦/三角波/方波；RAM 三角波和方波使用 50～1024 点自适应 polar 回放。十倍后级方案的满量程标定集中在 `HDL/AD9910_Constants.h`。
 - ADS8688 GPIO 软件 SPI 驱动：支持命令/程序寄存、手动采样、量程换算和 VOFA+ FireWater 输出。
 - AD9226 12 位并行采集：TIM1 输出 1 MHz 时钟，DCMI + DMA2 采集 4096 点，支持约 1 kHz 正弦的频率、基波至五次谐波和 THD 验证。
@@ -21,7 +21,7 @@
 - 双正弦相位差：覆盖 1 kHz 到 100 kHz，FFT 粗定位后使用公共频率正弦拟合，并预留多频点相位校准表。
 - 数字锁相鉴相器与 PI 环：`BLL/DLIA_BLL.*` 从 512 点同步双 ADC 码流提取相位差；`BLL/DPLL_BLL.*`将滤波相位转换为 PI 相位校正，并写入 AD9833 PHASE0。
 - 方波频率测量：PA0 / TIM2_CH1 输入捕获，覆盖 1 Hz 到 1 MHz；低频使用捕获中断，高频使用 `/8` 捕获 DMA，输出分辨率分别为 0.5 Hz 和 10 Hz。
-- 淘晶驰串口屏：USART3（PB10/PB11）115200 8N1，支持文本/数值刷新和触摸命令回传；USART1 保留为 USB 调试串口。
+- 淘晶驰串口屏模板：USART3（PB10/PB11）115200 8N1，支持五任务选择、频率/Vpp键盘参数、文本/数值返回帧和结果页刷新；当前只维护 `RESERVED` 状态，不启动题目业务。页面和字节码见 [串口屏.md](串口屏.md)。
 
 ## 项目结构
 
@@ -40,9 +40,9 @@
 
 ## 默认启动流程
 
-`Core/Src/main.c` 当前初始化 GPIO、DMA、TIM2 和 USART1。它使用原 AD9910 预留控制线驱动 AD9959：`PA8=SCLK`、`PD4=CS`、`PD5=IO_UPDATE`、`PA12=SDIO0`、`PA6=RESET`；以 500 MHz DDS 系统时钟假设配置 CH0～CH3 同时输出 100 kHz、幅度码 512、相位码 0 的正弦。主循环仅运行 `FREQ_API_Process()`，由 `PA0 / TIM2_CH1` 测量 1 Hz～1 MHz 方波并每秒经 USART1 输出一次频率摘要。ADS8688、ADC、DAC、TIM1、TIM4、AD9833、AD9910、AD9226/DCMI、SPI1、SPI2 与 USART3 均不启动。
+`Core/Src/main.c` 当前初始化 GPIO、DMA 和 USART3。启动阶段配置 AD9833 为 1 kHz、0 deg 正弦，配置 AD9910 为 100 kHz、300 mVpp 模块直接输出正弦；两路配置完成后由 DDS 芯片独立持续输出。串口屏通过 USART3 `PB10/PB11`、115200 8N1 接入，主循环只运行 `TJC_HMI_API_Process()`。AD9959、TIM2、ADC、DAC、USART1、SPI 外设与其他任务均不启动。
 
-模块资料规定数字电源 `VCC=+5 V`。STM32H750 GPIO 为 3.3 V，连接前应确认模块端逻辑高门限，首次验收建议在 `SCLK`、`SDI`、`CS1/CS2` 加 3.3 V 到 5 V 电平转换；禁止将模块侧 5 V 信号回灌至 STM32。
+串口屏完成上电后会发送 ready 帧，固件将其切回 `home` 页面；页面与字节码配置见 [串口屏.md](串口屏.md)。AD9910 的 300 mVpp 为模块直接输出端目标值，实际频率和 Vpp 仍需用示波器验收。
 
 如需在 `while` 前启动 DDS，可调用 `AD9833_API_OutputWaveform(frequency_hz, waveform)` 或 `AD9910_API_OutputSine(frequency_hz, amplitude_mvpp)`；两者都是 `void` 封装，内部完成各自所需的初始化和输出配置。
 
@@ -59,8 +59,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 ## 关键配置
 
 - MCU：STM32H750XBHx，工程名 `adc_fft_demo`。
-- USART1：PB6 TX、PB7 RX，921600 8N1；当前主任务以 DMA 异步发送 CH1～CH4 FireWater 文本帧。PB6/PB7 与 AD9226 资源冲突，不能同时启动。
-- USART3：PB10 TX、PB11 RX，115200 baud，当前用于 AD9226 摘要输出。
+- USART1：PB6 TX、PB7 RX，921600 8N1；当前主任务不初始化。PB6/PB7 与 AD9226 资源冲突，不能同时启动。
+- USART3：PB10 TX、PB11 RX，115200 8N1；当前主任务驱动淘晶驰串口屏页面状态机。
 - AD9226：D0～D11 使用 PC6/PC7/PC8/PC9/PE4/PB6/PE5/PE6/PC10/PC12/PB5/PD2，PA8 输出 1 MHz CLK 并回接 PA6/PIXCLK，PB1→PA4、PB2→PB7 为 DCMI 同步门控回路。
 - 方波测频：PA0 / TIM2_CH1，上升沿输入捕获；TIM2 时钟当前为 75 MHz，DMA 使用 DMA1 Stream5。
 - ADC1：PA1_C / ADC1_INP1；当前主任务不初始化，保留给后续 ADC 端口预设或其他任务。
@@ -71,7 +71,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 - ADC 采样：IIR demo 使用 12 bit、TIM1 TRGO、循环 DMA；当前端口预设使用 ADC1 10 bit、TIM1 TRGO 和 normal DMA。切换回双 ADC 测频/相位或 IIR 任务时须恢复对应 `.ioc` 配置。
 - AD9833：`FSYNC/CS=PA1`、`SDATA=PH4`、`SCLK=PH5`。本板封装中 PA1 与 PA1_C 是独立焊盘；ADC1 使用 PA1_C，ADC 直连开关保持打开即可与 PA1 的 AD9833 片选并存。
 - AD9910：见 `Core/Inc/main.h` 中 `MRT/PF0/PF1/PF2/IUP/CSN/SDI/SCK9` 宏。
-- AD9959：当前 demo 使用 `SCLK=PA8`、`CS=PD4`、`IO_UPDATE=PD5`、`SDIO0=PA12`、`RESET=PA6`，即复用未启动 AD9910 的控制 GPIO；假设系统时钟为 500 MHz。不能与 AD9910 或 AD9226 同时启动；模块若以 5 V 逻辑供电，先核验高电平门限并配置电平转换。
+- AD9959：当前 demo 按 `log.txt` 使用 GPIO 软件 SPI，`SCLK=PB3`、`SDIO0=PD7`、`CS=PC7`、`IO_UPDATE=PC0`、`RESET=PE4`、`PDC=PC1`。PDC 必须接线并保持低电平；PB3/PD7 与 DAC8830 硬件 SPI 冲突，PC7/PE4 与 AD9226 冲突。ADS8688 的 `PB13/PB14/PB15` 未被占用。假设系统时钟为 500 MHz；AD9910 的 `PA6/PA8/PD4/PD5/PA12` 控制线不被使用。`SDIO1`～`SDIO3`、`PS0`～`PS3` 必须按模块要求固定电平，不能悬空。模块若以 5 V 逻辑供电，先核验高电平门限并配置电平转换。
 - DAC8830：默认 `CS1=PE2`、`CS2=PE0`、`SDI=PD7/SPI1_MOSI`、`SCLK=PB3/SPI1_SCK`；当前 DMA demo 使用 TIM4 产生 1.2 MS/s 更新节拍，不占用 ADC2 的 `PA7` 或 DAC1_CH2 的 `PA5`。
 - ADS8688：`CS=PB12`、`RST_PD=PC4`、`SCK=PB13`、`SDO=PB14`、`SDI=PB15`；当前均由 GPIO 软件 SPI 驱动。当前使用 CH1～CH4 手动通道轮询与 `+-10.24 V` 量程。
 

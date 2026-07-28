@@ -85,6 +85,19 @@ void Error_Handler(void);
 #define ADS8688_CS_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+#define AD9959_SCLK_Pin GPIO_PIN_3
+#define AD9959_SCLK_GPIO_Port GPIOB
+#define AD9959_SDIO0_Pin GPIO_PIN_7
+#define AD9959_SDIO0_GPIO_Port GPIOD
+#define AD9959_CS_Pin GPIO_PIN_7
+#define AD9959_CS_GPIO_Port GPIOC
+#define AD9959_UPDATE_Pin GPIO_PIN_0
+#define AD9959_UPDATE_GPIO_Port GPIOC
+#define AD9959_RESET_Pin GPIO_PIN_4
+#define AD9959_RESET_GPIO_Port GPIOE
+#define AD9959_PDC_Pin GPIO_PIN_1
+#define AD9959_PDC_GPIO_Port GPIOC
+
 #define CS_Pin GPIO_PIN_1
 #define CS_GPIO_Port GPIOA
 #define SDA_Pin GPIO_PIN_4

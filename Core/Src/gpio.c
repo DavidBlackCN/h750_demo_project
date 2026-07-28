@@ -77,6 +77,13 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(ADS8688_CS_GPIO_Port, ADS8688_CS_Pin, GPIO_PIN_SET);
 
+  /*Configure AD9959 software SPI and control output levels */
+  HAL_GPIO_WritePin(AD9959_SCLK_GPIO_Port, AD9959_SCLK_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(AD9959_SDIO0_GPIO_Port, AD9959_SDIO0_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(AD9959_CS_GPIO_Port, AD9959_CS_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOC, AD9959_UPDATE_Pin|AD9959_PDC_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(AD9959_RESET_GPIO_Port, AD9959_RESET_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pins : PF1_Pin PF0_Pin PF2_Pin */
   GPIO_InitStruct.Pin = PF1_Pin|PF0_Pin|PF2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -125,6 +132,22 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(ADS8688_CS_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure AD9959 software SPI and control pins */
+  GPIO_InitStruct.Pin = AD9959_SCLK_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(AD9959_SCLK_GPIO_Port, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = AD9959_SDIO0_Pin;
+  HAL_GPIO_Init(AD9959_SDIO0_GPIO_Port, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = AD9959_CS_Pin|AD9959_UPDATE_Pin|AD9959_PDC_Pin;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = AD9959_RESET_Pin;
+  HAL_GPIO_Init(AD9959_RESET_GPIO_Port, &GPIO_InitStruct);
 
   /*AnalogSwitch Config */
   HAL_SYSCFG_AnalogSwitchConfig(SYSCFG_SWITCH_PA1, SYSCFG_SWITCH_PA1_CLOSE);

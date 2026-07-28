@@ -1,361 +1,384 @@
 #include "AD9959.h"
 
-#define AD9959_REG_CSR       0x00U
-#define AD9959_REG_FR1       0x01U
-#define AD9959_REG_FR2       0x02U
-#define AD9959_REG_CFR       0x03U
-#define AD9959_REG_CFTW0     0x04U
-#define AD9959_REG_CPOW0     0x05U
-#define AD9959_REG_ACR       0x06U
+uint8_t FR1_DATA[3] = {0xD0, 0x00, 0x00};
+uint8_t FR2_DATA[2] = {0x80, 0x00};
+double ACC_FRE_FACTOR = 8.59;
+uint8_t CFR_DATA[3] = {0x00, 0x03, 0x02};
 
-static AD9959_Config ad9959_config;
-static uint8_t ad9959_initialized;
-
-static void AD9959_EnableGpioClock(GPIO_TypeDef *port)
+void AD9959_Init(void)
 {
-    if (port == GPIOA)
-    {
-        __HAL_RCC_GPIOA_CLK_ENABLE();
-    }
-    else if (port == GPIOB)
-    {
-        __HAL_RCC_GPIOB_CLK_ENABLE();
-    }
-    else if (port == GPIOC)
-    {
-        __HAL_RCC_GPIOC_CLK_ENABLE();
-    }
-    else if (port == GPIOD)
-    {
-        __HAL_RCC_GPIOD_CLK_ENABLE();
-    }
-    else if (port == GPIOE)
-    {
-        __HAL_RCC_GPIOE_CLK_ENABLE();
-    }
-    else if (port == GPIOF)
-    {
-        __HAL_RCC_GPIOF_CLK_ENABLE();
-    }
-    else if (port == GPIOG)
-    {
-        __HAL_RCC_GPIOG_CLK_ENABLE();
-    }
-    else if (port == GPIOH)
-    {
-        __HAL_RCC_GPIOH_CLK_ENABLE();
-    }
-#if defined(GPIOI)
-    else if (port == GPIOI)
-    {
-        __HAL_RCC_GPIOI_CLK_ENABLE();
-    }
-#endif
-#if defined(GPIOJ)
-    else if (port == GPIOJ)
-    {
-        __HAL_RCC_GPIOJ_CLK_ENABLE();
-    }
-#endif
-#if defined(GPIOK)
-    else if (port == GPIOK)
-    {
-        __HAL_RCC_GPIOK_CLK_ENABLE();
-    }
-#endif
+    Intserve();
+    IntReset();
+
+    AD9959_WriteData(FR1_ADD, 3, FR1_DATA);
+    AD9959_WriteData(FR2_ADD, 2, FR2_DATA);
 }
 
-static void AD9959_DelayHalfPeriod(void)
+void delay1(uint32_t length)
 {
-    volatile uint32_t cycles = ad9959_config.sclk_half_period_nops;
+    length = length * 12;
+    while (length--);
+}
 
-    while (cycles-- != 0U)
+void Intserve(void)
+{
+    HAL_GPIO_WritePin(AD9959_PDC_GPIO_Port, AD9959_PDC_Pin, 0);
+    HAL_GPIO_WritePin(AD9959_CS_GPIO_Port, AD9959_CS_Pin, 1);
+    HAL_GPIO_WritePin(AD9959_SCLK_GPIO_Port, AD9959_SCLK_Pin, 0);
+    HAL_GPIO_WritePin(AD9959_UPDATE_GPIO_Port, AD9959_UPDATE_Pin, 0);
+    HAL_GPIO_WritePin(AD9959_SDIO0_GPIO_Port, AD9959_SDIO0_Pin, 0);
+}
+
+void IntReset(void)
+{
+    HAL_GPIO_WritePin(AD9959_RESET_GPIO_Port, AD9959_RESET_Pin, 0);
+    delay1(1);
+    HAL_GPIO_WritePin(AD9959_RESET_GPIO_Port, AD9959_RESET_Pin, 1);
+    delay1(30);
+    HAL_GPIO_WritePin(AD9959_RESET_GPIO_Port, AD9959_RESET_Pin, 0);
+}
+
+void IO_Update(void)
+{
+    HAL_GPIO_WritePin(AD9959_UPDATE_GPIO_Port, AD9959_UPDATE_Pin, 0);
+    delay1(2);
+    HAL_GPIO_WritePin(AD9959_UPDATE_GPIO_Port, AD9959_UPDATE_Pin, 1);
+    delay1(4);
+    HAL_GPIO_WritePin(AD9959_UPDATE_GPIO_Port, AD9959_UPDATE_Pin, 0);
+}
+
+void AD9959_WriteData(uint8_t RegisterAddress,
+                      uint8_t NumberofRegisters,
+                      uint8_t *RegisterData)
+{
+    uint8_t ControlValue = 0;
+    uint8_t ValueToWrite = 0;
+    uint8_t RegisterIndex = 0;
+    uint8_t i = 0;
+
+    ControlValue = RegisterAddress;
+    HAL_GPIO_WritePin(AD9959_SCLK_GPIO_Port, AD9959_SCLK_Pin, 0);
+    HAL_GPIO_WritePin(AD9959_CS_GPIO_Port, AD9959_CS_Pin, 0);
+    for (i = 0; i < 8; i++)
     {
-        __NOP();
+        HAL_GPIO_WritePin(AD9959_SCLK_GPIO_Port, AD9959_SCLK_Pin, 0);
+        if (0x80 == (ControlValue & 0x80))
+            HAL_GPIO_WritePin(AD9959_SDIO0_GPIO_Port, AD9959_SDIO0_Pin, 1);
+        else
+            HAL_GPIO_WritePin(AD9959_SDIO0_GPIO_Port, AD9959_SDIO0_Pin, 0);
+        HAL_GPIO_WritePin(AD9959_SCLK_GPIO_Port, AD9959_SCLK_Pin, 1);
+        ControlValue <<= 1;
+    }
+    HAL_GPIO_WritePin(AD9959_SCLK_GPIO_Port, AD9959_SCLK_Pin, 0);
+
+    for (RegisterIndex = 0; RegisterIndex < NumberofRegisters; RegisterIndex++)
+    {
+        ValueToWrite = RegisterData[RegisterIndex];
+        for (i = 0; i < 8; i++)
+        {
+            HAL_GPIO_WritePin(AD9959_SCLK_GPIO_Port, AD9959_SCLK_Pin, 0);
+            if (0x80 == (ValueToWrite & 0x80))
+                HAL_GPIO_WritePin(AD9959_SDIO0_GPIO_Port, AD9959_SDIO0_Pin, 1);
+            else
+                HAL_GPIO_WritePin(AD9959_SDIO0_GPIO_Port, AD9959_SDIO0_Pin, 0);
+            HAL_GPIO_WritePin(AD9959_SCLK_GPIO_Port, AD9959_SCLK_Pin, 1);
+            ValueToWrite <<= 1;
+        }
+        HAL_GPIO_WritePin(AD9959_SCLK_GPIO_Port, AD9959_SCLK_Pin, 0);
+    }
+    HAL_GPIO_WritePin(AD9959_CS_GPIO_Port, AD9959_CS_Pin, 1);
+}
+
+void Write_CFTW0(uint32_t fre)
+{
+    uint8_t CFTW0_DATA[4] = {0x00, 0x00, 0x00, 0x00};
+    uint32_t Temp;
+    Temp = (uint32_t)(fre * ACC_FRE_FACTOR);
+    CFTW0_DATA[3] = (uint8_t)Temp;
+    CFTW0_DATA[2] = (uint8_t)(Temp >> 8);
+    CFTW0_DATA[1] = (uint8_t)(Temp >> 16);
+    CFTW0_DATA[0] = (uint8_t)(Temp >> 24);
+    AD9959_WriteData(CFTW0_ADD, 4, CFTW0_DATA);
+}
+
+void Write_ACR(uint16_t Ampli)
+{
+    uint32_t A_temp = 0;
+    uint8_t ACR_DATA[3] = {0x00, 0x00, 0x00};
+    A_temp = Ampli | 0x1000;
+
+    ACR_DATA[1] = (uint8_t)(A_temp >> 8);
+    ACR_DATA[2] = (uint8_t)A_temp;
+    AD9959_WriteData(ACR_ADD, 3, ACR_DATA);
+}
+
+void Write_CPOW0(uint16_t Phase)
+{
+    uint8_t CPOW0_data[2] = {0x00, 0x00};
+    CPOW0_data[1] = (uint8_t)Phase;
+    CPOW0_data[0] = (uint8_t)(Phase >> 8);
+
+    AD9959_WriteData(CPOW0_ADD, 2, CPOW0_data);
+}
+
+void Write_LSRR(uint8_t rsrr, uint8_t fsrr)
+{
+    uint8_t LSRR_data[2] = {0x00, 0x00};
+
+    LSRR_data[1] = rsrr;
+    LSRR_data[0] = fsrr;
+    AD9959_WriteData(LSRR_ADD, 2, LSRR_data);
+}
+
+void Write_RDW(uint32_t r_delta)
+{
+    uint8_t RDW_data[4] = {0x00, 0x00, 0x00, 0x00};
+
+    RDW_data[3] = (uint8_t)r_delta;
+    RDW_data[2] = (uint8_t)(r_delta >> 8);
+    RDW_data[1] = (uint8_t)(r_delta >> 16);
+    RDW_data[0] = (uint8_t)(r_delta >> 24);
+    AD9959_WriteData(RDW_ADD, 4, RDW_data);
+}
+
+void Write_FDW(uint32_t f_delta)
+{
+    uint8_t FDW_data[4] = {0x00, 0x00, 0x00, 0x00};
+
+    FDW_data[3] = (uint8_t)f_delta;
+    FDW_data[2] = (uint8_t)(f_delta >> 8);
+    FDW_data[1] = (uint8_t)(f_delta >> 16);
+    FDW_data[0] = (uint8_t)(f_delta >> 24);
+    AD9959_WriteData(FDW_ADD, 4, FDW_data);
+}
+
+void Write_Profile_Fre(uint8_t profile, uint32_t data)
+{
+    uint8_t profileAddr;
+    uint8_t Profile_data[4] = {0x00, 0x00, 0x00, 0x00};
+    uint32_t Temp;
+    Temp = (uint32_t)(data * ACC_FRE_FACTOR);
+    Profile_data[3] = (uint8_t)Temp;
+    Profile_data[2] = (uint8_t)(Temp >> 8);
+    Profile_data[1] = (uint8_t)(Temp >> 16);
+    Profile_data[0] = (uint8_t)(Temp >> 24);
+    profileAddr = PROFILE_ADDR_BASE + profile;
+
+    AD9959_WriteData(profileAddr, 4, Profile_data);
+}
+
+void Write_Profile_Ampli(uint8_t profile, uint16_t data)
+{
+    uint8_t profileAddr;
+    uint8_t Profile_data[4] = {0x00, 0x00, 0x00, 0x00};
+
+    Profile_data[1] = (uint8_t)(data << 6);
+    Profile_data[0] = (uint8_t)(data >> 2);
+    profileAddr = PROFILE_ADDR_BASE + profile;
+
+    AD9959_WriteData(profileAddr, 4, Profile_data);
+}
+
+void Write_Profile_Phase(uint8_t profile, uint16_t data)
+{
+    uint8_t profileAddr;
+    uint8_t Profile_data[4] = {0x00, 0x00, 0x00, 0x00};
+
+    Profile_data[1] = (uint8_t)(data << 2);
+    Profile_data[0] = (uint8_t)(data >> 6);
+    profileAddr = PROFILE_ADDR_BASE + profile;
+
+    AD9959_WriteData(profileAddr, 4, Profile_data);
+}
+
+void AD9959_Set_Fre(uint8_t Channel, uint32_t Freq)
+{
+    uint8_t CHANNEL[1] = {0x00};
+
+    CHANNEL[0] = Channel;
+    AD9959_WriteData(CSR_ADD, 1, CHANNEL);
+    Write_CFTW0(Freq);
+}
+
+void AD9959_Set_Amp(uint8_t Channel, uint16_t Ampli)
+{
+    uint8_t CHANNEL[1] = {0x00};
+
+    CHANNEL[0] = Channel;
+    AD9959_WriteData(CSR_ADD, 1, CHANNEL);
+    Write_ACR(Ampli);
+}
+
+void AD9959_Set_Phase(uint8_t Channel, uint16_t Phase)
+{
+    uint8_t CHANNEL[1] = {0x00};
+    CHANNEL[0] = Channel;
+
+    AD9959_WriteData(CSR_ADD, 1, CHANNEL);
+    Write_CPOW0(Phase);
+}
+
+void AD9959_Modulation_Init(uint8_t Channel,
+                            uint8_t Modulation,
+                            uint8_t Sweep_en,
+                            uint8_t Nlevel)
+{
+    uint8_t i = 0;
+    uint8_t CHANNEL[1] = {0x00};
+    uint8_t FR1_data[3];
+    uint8_t FR2_data[2];
+    uint8_t CFR_data[3];
+    for (i = 0; i < 3; i++)
+    {
+        FR1_data[i] = FR1_DATA[i];
+        CFR_data[i] = CFR_DATA[i];
+    }
+    FR2_data[0] = FR2_DATA[0];
+    FR2_data[1] = FR2_DATA[1];
+
+    CHANNEL[0] = Channel;
+    AD9959_WriteData(CSR_ADD, 1, CHANNEL);
+
+    FR1_data[1] = Nlevel;
+    CFR_data[0] = Modulation;
+    CFR_data[1] |= Sweep_en;
+    CFR_data[2] = 0x00;
+
+    if (Channel != 0)
+    {
+        AD9959_WriteData(FR1_ADD, 3, FR1_data);
+        AD9959_WriteData(FR2_ADD, 2, FR2_data);
+        AD9959_WriteData(CFR_ADD, 3, CFR_data);
     }
 }
 
-static void AD9959_WritePin(GPIO_TypeDef *port, uint16_t pin,
-                             GPIO_PinState state)
+void AD9959_SetFSK(uint8_t Channel, uint32_t *data, uint16_t Phase)
 {
-    HAL_GPIO_WritePin(port, pin, state);
+    uint8_t i = 0;
+    uint8_t CHANNEL[1] = {0x00};
+
+    CHANNEL[0] = Channel;
+    AD9959_WriteData(CSR_ADD, 1, CHANNEL);
+    Write_CPOW0(Phase);
+
+    Write_CFTW0(data[0]);
+    for (i = 0; i < 15; i++)
+        Write_Profile_Fre(i, data[i + 1]);
 }
 
-static void AD9959_WriteByte(uint8_t data)
+void AD9959_SetASK(uint8_t Channel,
+                   uint16_t *data,
+                   uint32_t fre,
+                   uint16_t Phase)
 {
-    uint8_t bit;
+    uint8_t i = 0;
+    uint8_t CHANNEL[1] = {0x00};
 
-    AD9959_WritePin(ad9959_config.sclk_port, ad9959_config.sclk_pin,
-                    GPIO_PIN_RESET);
-    for (bit = 0U; bit < 8U; ++bit)
-    {
-        AD9959_WritePin(ad9959_config.sdio0_port, ad9959_config.sdio0_pin,
-                        ((data & 0x80U) != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-        AD9959_DelayHalfPeriod();
-        AD9959_WritePin(ad9959_config.sclk_port, ad9959_config.sclk_pin,
-                        GPIO_PIN_SET);
-        AD9959_DelayHalfPeriod();
-        AD9959_WritePin(ad9959_config.sclk_port, ad9959_config.sclk_pin,
-                        GPIO_PIN_RESET);
-        data <<= 1U;
-    }
+    CHANNEL[0] = Channel;
+    AD9959_WriteData(CSR_ADD, 1, CHANNEL);
+    Write_CFTW0(fre);
+    Write_CPOW0(Phase);
+
+    Write_ACR(data[0]);
+    for (i = 0; i < 15; i++)
+        Write_Profile_Ampli(i, data[i + 1]);
 }
 
-static HAL_StatusTypeDef AD9959_WriteRegisterRaw(uint8_t address,
-                                                  const uint8_t *data,
-                                                  uint8_t length)
+void AD9959_SetPSK(uint8_t Channel, uint16_t *data, uint32_t Freq)
 {
-    uint8_t index;
+    uint8_t i = 0;
+    uint8_t CHANNEL[1] = {0x00};
 
-    if ((data == NULL) || (length == 0U))
-    {
-        return HAL_ERROR;
-    }
+    CHANNEL[0] = Channel;
+    AD9959_WriteData(CSR_ADD, 1, CHANNEL);
+    Write_CFTW0(Freq);
 
-    AD9959_WritePin(ad9959_config.cs_port, ad9959_config.cs_pin,
-                    GPIO_PIN_RESET);
-    AD9959_WriteByte(address);
-    for (index = 0U; index < length; ++index)
-    {
-        AD9959_WriteByte(data[index]);
-    }
-    AD9959_WritePin(ad9959_config.cs_port, ad9959_config.cs_pin,
-                    GPIO_PIN_SET);
-    return HAL_OK;
+    Write_CPOW0(data[0]);
+    for (i = 0; i < 15; i++)
+        Write_Profile_Phase(i, data[i + 1]);
 }
 
-static HAL_StatusTypeDef AD9959_ValidateChannels(AD9959_ChannelMask channels)
+void AD9959_SetFre_Sweep(uint8_t Channel,
+                         uint32_t s_data,
+                         uint32_t e_data,
+                         uint32_t r_delta,
+                         uint32_t f_delta,
+                         uint8_t rsrr,
+                         uint8_t fsrr,
+                         uint16_t Ampli,
+                         uint16_t Phase)
 {
-    return ((((uint8_t)channels & 0x0FU) == 0U) &&
-            (((uint8_t)channels & 0xF0U) != 0U)) ? HAL_OK : HAL_ERROR;
+    uint8_t CHANNEL[1] = {0x00};
+    uint32_t Fer_data = 0;
+
+    CHANNEL[0] = Channel;
+    AD9959_WriteData(CSR_ADD, 1, CHANNEL);
+    Write_CPOW0(Phase);
+    Write_ACR(Ampli);
+    Write_LSRR(rsrr, fsrr);
+    Fer_data = (uint32_t)(r_delta * ACC_FRE_FACTOR);
+    Write_RDW(Fer_data);
+    Fer_data = (uint32_t)(f_delta * ACC_FRE_FACTOR);
+    Write_FDW(Fer_data);
+    Write_CFTW0(s_data);
+    Write_Profile_Fre(0, e_data);
 }
 
-static HAL_StatusTypeDef AD9959_SelectChannelsRaw(AD9959_ChannelMask channels)
+void AD9959_SetAmp_Sweep(uint8_t Channel,
+                         uint32_t s_Ampli,
+                         uint16_t e_Ampli,
+                         uint32_t r_delta,
+                         uint32_t f_delta,
+                         uint8_t rsrr,
+                         uint8_t fsrr,
+                         uint32_t fre,
+                         uint16_t Phase)
 {
-    uint8_t data = (uint8_t)channels;
+    uint8_t CHANNEL[1] = {0x00};
+    uint8_t ACR_data[3] = {0x00, 0x00, 0x00};
 
-    return AD9959_WriteRegisterRaw(AD9959_REG_CSR, &data, 1U);
+    CHANNEL[0] = Channel;
+    AD9959_WriteData(CSR_ADD, 1, CHANNEL);
+    Write_CFTW0(fre);
+    Write_CPOW0(Phase);
+    Write_LSRR(rsrr, fsrr);
+    Write_RDW(r_delta << 22);
+    Write_FDW(f_delta << 22);
+    ACR_data[1] = (uint8_t)(s_Ampli >> 8);
+    ACR_data[2] = (uint8_t)s_Ampli;
+    AD9959_WriteData(ACR_ADD, 3, ACR_data);
+    Write_Profile_Ampli(0, e_Ampli);
 }
 
-HAL_StatusTypeDef AD9959_Reset(void)
+void AD9959_SetPhase_Sweep(uint8_t Channel,
+                           uint16_t s_data,
+                           uint16_t e_data,
+                           uint16_t r_delta,
+                           uint16_t f_delta,
+                           uint8_t rsrr,
+                           uint8_t fsrr,
+                           uint32_t fre,
+                           uint16_t Ampli)
 {
-    if (ad9959_initialized == 0U)
-    {
-        return HAL_ERROR;
-    }
+    uint8_t CHANNEL[1] = {0x00};
 
-    AD9959_WritePin(ad9959_config.reset_port, ad9959_config.reset_pin,
-                    GPIO_PIN_SET);
-    HAL_Delay(1U);
-    AD9959_WritePin(ad9959_config.reset_port, ad9959_config.reset_pin,
-                    GPIO_PIN_RESET);
-    HAL_Delay(1U);
-    return HAL_OK;
+    CHANNEL[0] = Channel;
+    AD9959_WriteData(CSR_ADD, 1, CHANNEL);
+    Write_CFTW0(fre);
+    Write_ACR(Ampli);
+    Write_LSRR(rsrr, fsrr);
+    Write_RDW(r_delta << 18);
+    Write_FDW(f_delta << 18);
+    Write_CPOW0(s_data);
+    Write_Profile_Phase(0, e_data);
 }
 
-HAL_StatusTypeDef AD9959_IOUpdate(void)
+void AD9959_setsine(uint8_t Channel,
+                    uint32_t Freq,
+                    uint16_t Ampli,
+                    uint16_t Phase)
 {
-    if (ad9959_initialized == 0U)
-    {
-        return HAL_ERROR;
-    }
-
-    AD9959_WritePin(ad9959_config.update_port, ad9959_config.update_pin,
-                    GPIO_PIN_RESET);
-    AD9959_DelayHalfPeriod();
-    AD9959_WritePin(ad9959_config.update_port, ad9959_config.update_pin,
-                    GPIO_PIN_SET);
-    AD9959_DelayHalfPeriod();
-    AD9959_WritePin(ad9959_config.update_port, ad9959_config.update_pin,
-                    GPIO_PIN_RESET);
-    return HAL_OK;
-}
-
-HAL_StatusTypeDef AD9959_Init(const AD9959_Config *config)
-{
-    GPIO_InitTypeDef gpio = {0};
-    const uint8_t fr1[] = {0xD0U, 0x00U, 0x00U};
-    const uint8_t fr2[] = {0x00U, 0x00U};
-    const uint8_t cfr[] = {0x00U, 0x03U, 0x02U};
-
-    if ((config == NULL) || (config->sclk_port == NULL) ||
-        (config->cs_port == NULL) || (config->update_port == NULL) ||
-        (config->sdio0_port == NULL) || (config->reset_port == NULL) ||
-        (config->sclk_pin == 0U) || (config->cs_pin == 0U) ||
-        (config->update_pin == 0U) || (config->sdio0_pin == 0U) ||
-        (config->reset_pin == 0U))
-    {
-        return HAL_ERROR;
-    }
-
-    ad9959_config = *config;
-    if (ad9959_config.system_clock_hz == 0U)
-    {
-        ad9959_config.system_clock_hz = AD9959_DEFAULT_SYSTEM_CLOCK_HZ;
-    }
-    if (ad9959_config.sclk_half_period_nops == 0U)
-    {
-        ad9959_config.sclk_half_period_nops = 8U;
-    }
-
-    AD9959_EnableGpioClock(ad9959_config.sclk_port);
-    AD9959_EnableGpioClock(ad9959_config.cs_port);
-    AD9959_EnableGpioClock(ad9959_config.update_port);
-    AD9959_EnableGpioClock(ad9959_config.sdio0_port);
-    AD9959_EnableGpioClock(ad9959_config.reset_port);
-
-    gpio.Mode = GPIO_MODE_OUTPUT_PP;
-    gpio.Pull = GPIO_NOPULL;
-    gpio.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-
-    gpio.Pin = ad9959_config.sclk_pin;
-    HAL_GPIO_Init(ad9959_config.sclk_port, &gpio);
-    gpio.Pin = ad9959_config.cs_pin;
-    HAL_GPIO_Init(ad9959_config.cs_port, &gpio);
-    gpio.Pin = ad9959_config.update_pin;
-    HAL_GPIO_Init(ad9959_config.update_port, &gpio);
-    gpio.Pin = ad9959_config.sdio0_pin;
-    HAL_GPIO_Init(ad9959_config.sdio0_port, &gpio);
-    gpio.Pin = ad9959_config.reset_pin;
-    HAL_GPIO_Init(ad9959_config.reset_port, &gpio);
-
-    AD9959_WritePin(ad9959_config.sclk_port, ad9959_config.sclk_pin,
-                    GPIO_PIN_RESET);
-    AD9959_WritePin(ad9959_config.cs_port, ad9959_config.cs_pin,
-                    GPIO_PIN_SET);
-    AD9959_WritePin(ad9959_config.update_port, ad9959_config.update_pin,
-                    GPIO_PIN_RESET);
-    AD9959_WritePin(ad9959_config.sdio0_port, ad9959_config.sdio0_pin,
-                    GPIO_PIN_RESET);
-    AD9959_WritePin(ad9959_config.reset_port, ad9959_config.reset_pin,
-                    GPIO_PIN_RESET);
-
-    ad9959_initialized = 1U;
-    if ((AD9959_Reset() != HAL_OK) ||
-        (AD9959_WriteRegisterRaw(AD9959_REG_FR1, fr1, sizeof(fr1)) != HAL_OK) ||
-        (AD9959_WriteRegisterRaw(AD9959_REG_FR2, fr2, sizeof(fr2)) != HAL_OK) ||
-        (AD9959_SelectChannelsRaw(AD9959_CHANNEL_ALL) != HAL_OK) ||
-        (AD9959_WriteRegisterRaw(AD9959_REG_CFR, cfr, sizeof(cfr)) != HAL_OK) ||
-        (AD9959_IOUpdate() != HAL_OK))
-    {
-        ad9959_initialized = 0U;
-        return HAL_ERROR;
-    }
-
-    return HAL_OK;
-}
-
-HAL_StatusTypeDef AD9959_WriteRegister(uint8_t address, const uint8_t *data,
-                                        uint8_t length)
-{
-    if (ad9959_initialized == 0U)
-    {
-        return HAL_ERROR;
-    }
-
-    return AD9959_WriteRegisterRaw(address, data, length);
-}
-
-HAL_StatusTypeDef AD9959_SelectChannels(AD9959_ChannelMask channels)
-{
-    if ((ad9959_initialized == 0U) ||
-        (AD9959_ValidateChannels(channels) != HAL_OK))
-    {
-        return HAL_ERROR;
-    }
-
-    return AD9959_SelectChannelsRaw(channels);
-}
-
-HAL_StatusTypeDef AD9959_SetFrequency(AD9959_ChannelMask channels,
-                                      uint32_t frequency_hz)
-{
-    uint64_t ftw;
-    uint8_t data[4];
-
-    if ((ad9959_initialized == 0U) ||
-        (AD9959_ValidateChannels(channels) != HAL_OK) ||
-        ((uint64_t)frequency_hz > ((uint64_t)ad9959_config.system_clock_hz / 2ULL)))
-    {
-        return HAL_ERROR;
-    }
-
-    ftw = (((uint64_t)frequency_hz << 32U) +
-           ((uint64_t)ad9959_config.system_clock_hz / 2ULL)) /
-          (uint64_t)ad9959_config.system_clock_hz;
-    data[0] = (uint8_t)(ftw >> 24U);
-    data[1] = (uint8_t)(ftw >> 16U);
-    data[2] = (uint8_t)(ftw >> 8U);
-    data[3] = (uint8_t)ftw;
-
-    if (AD9959_SelectChannelsRaw(channels) != HAL_OK)
-    {
-        return HAL_ERROR;
-    }
-    return AD9959_WriteRegisterRaw(AD9959_REG_CFTW0, data, sizeof(data));
-}
-
-HAL_StatusTypeDef AD9959_SetAmplitude(AD9959_ChannelMask channels,
-                                      uint16_t amplitude_code)
-{
-    uint16_t acr;
-    uint8_t data[3] = {0U, 0U, 0U};
-
-    if ((ad9959_initialized == 0U) ||
-        (AD9959_ValidateChannels(channels) != HAL_OK) ||
-        (amplitude_code > AD9959_AMPLITUDE_CODE_MAX))
-    {
-        return HAL_ERROR;
-    }
-
-    acr = (uint16_t)(0x1000U | amplitude_code);
-    data[1] = (uint8_t)(acr >> 8U);
-    data[2] = (uint8_t)acr;
-
-    if (AD9959_SelectChannelsRaw(channels) != HAL_OK)
-    {
-        return HAL_ERROR;
-    }
-    return AD9959_WriteRegisterRaw(AD9959_REG_ACR, data, sizeof(data));
-}
-
-HAL_StatusTypeDef AD9959_SetPhase(AD9959_ChannelMask channels,
-                                  uint16_t phase_code)
-{
-    uint8_t data[2];
-
-    if ((ad9959_initialized == 0U) ||
-        (AD9959_ValidateChannels(channels) != HAL_OK) ||
-        (phase_code > AD9959_PHASE_CODE_MAX))
-    {
-        return HAL_ERROR;
-    }
-
-    data[0] = (uint8_t)(phase_code >> 8U);
-    data[1] = (uint8_t)phase_code;
-    if (AD9959_SelectChannelsRaw(channels) != HAL_OK)
-    {
-        return HAL_ERROR;
-    }
-    return AD9959_WriteRegisterRaw(AD9959_REG_CPOW0, data, sizeof(data));
-}
-
-HAL_StatusTypeDef AD9959_ConfigureSingleTone(AD9959_ChannelMask channels,
-                                             uint32_t frequency_hz,
-                                             uint16_t amplitude_code,
-                                             uint16_t phase_code)
-{
-    if ((AD9959_SetFrequency(channels, frequency_hz) != HAL_OK) ||
-        (AD9959_SetAmplitude(channels, amplitude_code) != HAL_OK) ||
-        (AD9959_SetPhase(channels, phase_code) != HAL_OK))
-    {
-        return HAL_ERROR;
-    }
-
-    return AD9959_IOUpdate();
-}
-
-uint32_t AD9959_GetSystemClockHz(void)
-{
-    return (ad9959_initialized != 0U) ? ad9959_config.system_clock_hz : 0U;
+    AD9959_Set_Fre(Channel, Freq);
+    AD9959_Set_Amp(Channel, Ampli);
+    AD9959_Set_Phase(Channel, Phase);
 }
