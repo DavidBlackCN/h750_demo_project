@@ -1,6 +1,6 @@
 # STM32H750 电赛信号题模板项目
 
-当前主任务为 ADS8688 四通道采集 demo：模块 `CH1`～`CH4` 手动通道轮询采集，并通过 USART1 的 DMA 异步输出四通道 VOFA+ FireWater 文本帧。片内 ADC、DAC、DDS 与其他 demo 保留但当前不启动。
+当前主任务为 AD9959 四通道同频输出和 TIM2 测频 demo：AD9959 的 CH0～CH3 均输出 100 kHz 正弦，TIM2 在 `PA0 / TIM2_CH1` 测量外部方波频率，并通过 USART1 周期输出测量摘要。ADS8688、片内 ADC、DAC 与其他 demo 保留但当前不启动。
 
 这是一个面向电子设计竞赛信号题的 STM32H750 模板工程，目标是把常用的信号产生、采集、频谱分析和串口调试能力提前搭好，后续按题目要求快速组合业务逻辑。
 
@@ -9,6 +9,7 @@
 - `SUPER_FFT`（按需启用）：ADC3 的 4096 点 FFT 测频模块。它使用 `PC2_C / ADC3_INP0`、DMA1 Stream3 和独立的 TIM6_TRGO；先以约 400 kS/s 粗测 10 kHz～100 kHz，低于 10 kHz 时改为约 40 kS/s 做 FFT 粗测与 1 Hz 步进细扫。当前默认主任务仍是 ADC2，`SUPER_FFT` 不会自动启动。
 
 - AD9833 软件 SPI 驱动：支持寄存器、频率、相位和波形控制。
+- AD9959 GPIO 软件串行驱动：支持四通道 CSR 选择、频率、10 位幅度和 14 位相位配置；当前默认任务将四路配置为 100 kHz 正弦。
 - AD9910 波形 API：支持幂等初始化、原始 14 位 ASF 单 Profile 正弦输出，以及按直接输出 mVpp 设置的正弦/三角波/方波；RAM 三角波和方波使用 50～1024 点自适应 polar 回放。十倍后级方案的满量程标定集中在 `HDL/AD9910_Constants.h`。
 - ADS8688 GPIO 软件 SPI 驱动：支持命令/程序寄存、手动采样、量程换算和 VOFA+ FireWater 输出。
 - AD9226 12 位并行采集：TIM1 输出 1 MHz 时钟，DCMI + DMA2 采集 4096 点，支持约 1 kHz 正弦的频率、基波至五次谐波和 THD 验证。
@@ -39,7 +40,7 @@
 
 ## 默认启动流程
 
-`Core/Src/main.c` 当前初始化 GPIO、DMA 和 USART1，并调用 `ADS8688_API_Init()`。主循环仅运行 `ADS8688_API_Process()`：ADS8688 使用 PB13/PB14/PB15 的软件 SPI，依次选择内部通道 `0`～`3`（模块 `CH1`～`CH4`）后读取转换结果。每 25 组样本发送一行四通道 FireWater 文本。当前为通道与波形验收 demo，未承诺 100 kS/s/通道的固定采样率。ADC、DAC、定时器、DDS、AD9226/DCMI、SPI1、SPI2 与 USART3 均不启动。
+`Core/Src/main.c` 当前初始化 GPIO、DMA、TIM2 和 USART1。它使用原 AD9910 预留控制线驱动 AD9959：`PA8=SCLK`、`PD4=CS`、`PD5=IO_UPDATE`、`PA12=SDIO0`、`PA6=RESET`；以 500 MHz DDS 系统时钟假设配置 CH0～CH3 同时输出 100 kHz、幅度码 512、相位码 0 的正弦。主循环仅运行 `FREQ_API_Process()`，由 `PA0 / TIM2_CH1` 测量 1 Hz～1 MHz 方波并每秒经 USART1 输出一次频率摘要。ADS8688、ADC、DAC、TIM1、TIM4、AD9833、AD9910、AD9226/DCMI、SPI1、SPI2 与 USART3 均不启动。
 
 模块资料规定数字电源 `VCC=+5 V`。STM32H750 GPIO 为 3.3 V，连接前应确认模块端逻辑高门限，首次验收建议在 `SCLK`、`SDI`、`CS1/CS2` 加 3.3 V 到 5 V 电平转换；禁止将模块侧 5 V 信号回灌至 STM32。
 
@@ -70,6 +71,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1
 - ADC 采样：IIR demo 使用 12 bit、TIM1 TRGO、循环 DMA；当前端口预设使用 ADC1 10 bit、TIM1 TRGO 和 normal DMA。切换回双 ADC 测频/相位或 IIR 任务时须恢复对应 `.ioc` 配置。
 - AD9833：`FSYNC/CS=PA1`、`SDATA=PH4`、`SCLK=PH5`。本板封装中 PA1 与 PA1_C 是独立焊盘；ADC1 使用 PA1_C，ADC 直连开关保持打开即可与 PA1 的 AD9833 片选并存。
 - AD9910：见 `Core/Inc/main.h` 中 `MRT/PF0/PF1/PF2/IUP/CSN/SDI/SCK9` 宏。
+- AD9959：当前 demo 使用 `SCLK=PA8`、`CS=PD4`、`IO_UPDATE=PD5`、`SDIO0=PA12`、`RESET=PA6`，即复用未启动 AD9910 的控制 GPIO；假设系统时钟为 500 MHz。不能与 AD9910 或 AD9226 同时启动；模块若以 5 V 逻辑供电，先核验高电平门限并配置电平转换。
 - DAC8830：默认 `CS1=PE2`、`CS2=PE0`、`SDI=PD7/SPI1_MOSI`、`SCLK=PB3/SPI1_SCK`；当前 DMA demo 使用 TIM4 产生 1.2 MS/s 更新节拍，不占用 ADC2 的 `PA7` 或 DAC1_CH2 的 `PA5`。
 - ADS8688：`CS=PB12`、`RST_PD=PC4`、`SCK=PB13`、`SDO=PB14`、`SDI=PB15`；当前均由 GPIO 软件 SPI 驱动。当前使用 CH1～CH4 手动通道轮询与 `+-10.24 V` 量程。
 

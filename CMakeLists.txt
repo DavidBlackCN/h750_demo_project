@@ -97,6 +97,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     BLL/PHASE_BLL.c
     BLL/USART_BLL.c
     HDL/AD9226.c
+    HDL/AD9959.c
     HDL/AD9833.c
     HDL/ADS8688.c
     HDL/AD9910.c

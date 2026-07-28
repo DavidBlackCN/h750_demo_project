@@ -1,14 +1,6 @@
-# 当前主任务：片内 DAC 100 kHz 正弦输出
+# 当前主任务：AD9959 四通道 100 kHz 正弦 + TIM2 测频
 
-`main.c` 当前启动片内 DAC1_CH1：`PA4 / DAC1_OUT1` 使用 TIM4_TRGO 与 DMA1 Stream6，
-调用 `DAC_Waveform_StartChannel(DAC_CHANNEL_1, DAC_USER_WAVE_SINE, 100000.0f, 1.0f, 1.65f)`
-输出 100 kHz、1 Vpp、1.65 V 偏置正弦。高频模式将活跃表缩短为 20 点，更新率为 2 MS/s；
-该模式用于高频尝试，需示波器确认实际幅度、失真和 DAC DMA 欠载状态。
-
-模块资料要求 `VCC=+5 V`。DAC8830 芯片在 5 V 供电时的数字输入高电平门限应按 5 V
-逻辑核验，STM32H750 的 3.3 V GPIO 不能默认视为满足该门限。首次上板应使用
-3.3 V 到 5 V 电平转换器，或用逻辑分析仪确认模块端 `SCLK/SDI/CS` 高电平满足要求；
-不要把 5 V 信号直接送入 STM32 引脚。
+`main.c` 当前初始化 AD9959 和 TIM2 输入捕获。AD9959 的 CH0～CH3 均为 100 kHz、幅度码 512、相位码 0；控制线为 `PA8=SCLK`、`PD4=CS`、`PD5=IO_UPDATE`、`PA12=SDIO0`、`PA6=RESET`。TIM2 通过 `PA0 / TIM2_CH1` 测量 0～3.3 V 外部方波，并在 USART1 `PB6/PB7`（921600 8N1）每秒输出一次频率摘要。AD9959 假设模块系统时钟为 500 MHz，必须按实际模块改写；5 V 数字逻辑模块应确认高电平门限或增加电平转换，且模块需按实际功耗散热。
 
 # 保留任务：DDS 与片内 DAC 同时输出
 
@@ -81,6 +73,37 @@ PI 初值集中在`API/DPLL_API.h`：目标相位`DPLL_API_TARGET_PHASE_DEG=0`�
 4. 引脚宏尽量集中在头文件或 `Core/Inc/main.h`，方便比赛现场换线。
 5. 不要无理由改 CubeMX 生成区。必须改时优先放在 `USER CODE` 区，或在独立模块里覆盖配置。
 6. 用户明确要求编译验证时执行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Tools\build.ps1`；新建构建目录或缓存失效时追加 `-Reconfigure`。
+
+## AD9959 四通道 DDS（按需接入）
+
+`HDL/AD9959.*` 参考 [AD9959 驱动文章](https://2048ai.net/682ae80d606a8318e8576db5.html) 的寄存器流程移植到 STM32H750 HAL：GPIO 软件串行写寄存器、CSR 通道选择、CFTW0 频率控制字、ACR 幅度控制字、CPOW0 相位控制字，最后以 `IO_UPDATE` 锁存。
+
+驱动没有固定开发板引脚，也不由当前 `main.c` 启动。先选择五根未占用的 3.3 V GPIO，并在应用初始化阶段传入配置；`system_clock_hz` 必须填模块实际 DDS 系统时钟。文章的参考模块使用 25 MHz 晶振和 20 倍 PLL，即 500 MHz。频率控制字按实际时钟用 64 位整数计算，不依赖文章中的固定 `8.589934592` 系数。
+
+```c
+#include "AD9959.h"
+
+const AD9959_Config ad9959 = {
+    .sclk_port = GPIOx, .sclk_pin = GPIO_PIN_x,
+    .cs_port = GPIOx, .cs_pin = GPIO_PIN_x,
+    .update_port = GPIOx, .update_pin = GPIO_PIN_x,
+    .sdio0_port = GPIOx, .sdio0_pin = GPIO_PIN_x,
+    .reset_port = GPIOx, .reset_pin = GPIO_PIN_x,
+    .system_clock_hz = 500000000U,
+    .sclk_half_period_nops = 8U,
+};
+
+if (AD9959_Init(&ad9959) == HAL_OK) {
+    (void)AD9959_ConfigureSingleTone(AD9959_CHANNEL_0,
+                                     1000000U, 512U, 0U);
+}
+```
+
+`AD9959_CHANNEL_0` 到 `AD9959_CHANNEL_3` 可按位或组合选择。组合选择时，所有被选通道写入相同的频率、幅度和相位；如需各通道相位不同，则依次调用每个通道。幅度码范围为 `0`～`1023`，相位码范围为 `0`～`16383` 对应 `0`～`360°`。`AD9959_ConfigureSingleTone()` 在三个寄存器都写完后只产生一次 `IO_UPDATE` 脉冲。
+
+当前 `main.c` 的 AD9959 + 测频 demo 使用 `PA8=SCLK`、`PD4=CS`、`PD5=IO_UPDATE`、`PA12=SDIO0`、`PA6=RESET`，将 CH0～CH3 同时配置为 `100 kHz`、幅度码 `512`、相位码 `0`。这五根线复用了未启动 AD9910 的控制 GPIO，故不能同时启动 AD9910；`PA6/PA8` 也不能同时用作 AD9226 的时钟回路。TIM2 测频输入固定为 `PA0 / TIM2_CH1`，输入须为共地的 0～3.3 V 方波。USART1 `PB6/PB7` 以 921600 8N1 每秒输出一行 `freq=...` 摘要。
+
+模块数字侧通常为 5 V 供电，不能将其 `SDIO1`～`SDIO3` 或其他 5 V 信号直接接入 H750。当前驱动只使用 MCU 到模块的 `SDIO0` 单向写入；首次接线仍应确认 3.3 V 输出能满足模块高电平门限，必要时加入电平转换。AD9959 功耗和发热较高，须按模块实际供电与散热条件上板验收。
 
 ## DAC8830 使用示例
 
@@ -219,7 +242,7 @@ freq=10000.00Hz phase=45.123deg
 
 ## 方波频率测量
 
-`API/FREQ_API.*` 方波测频代码仍保留，但当前主任务不启动。恢复该 demo 后，输入接到 `PA0 / TIM2_CH1`：
+`API/FREQ_API.*` 方波测频代码已由当前主任务启动，输入接到 `PA0 / TIM2_CH1`：
 
 ```text
 信号源方波输出 -> PA0

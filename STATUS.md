@@ -1,12 +1,16 @@
 # 项目状态
 
-## 当前主任务：ADS8688 CH1～CH4 手动通道轮询采集（2026-07-28）
+## 当前主任务：AD9959 四通道 100 kHz 正弦输出 + TIM2 测频（2026-07-28）
 
-- `main.c` 当前仅初始化 GPIO、DMA 和 USART1，并调用 `ADS8688_API_Init()`；主循环仅调用 `ADS8688_API_Process()`。ADS8688 使用手动通道轮询读取模块 `CH1`～`CH4`（内部通道 `0`～`3`），CH5～CH8 关断掩码为 `0xF0`；四路均为 `+-10.24 V` 量程。
+- `main.c` 当前初始化 GPIO、DMA、TIM2 和 USART1。AD9959 使用未启动 AD9910 的控制线：`PA8=SCLK`、`PD4=CS`、`PD5=IO_UPDATE`、`PA12=SDIO0`、`PA6=RESET`；以模块 DDS 系统时钟为 500 MHz 配置 CH0～CH3 同时输出 100 kHz、幅度码 512、相位码 0 的正弦。该幅度码只表示数字幅度约一半，实际 Vpp 仍受模块时钟、输出网络和负载影响。
+- `PA0 / TIM2_CH1` 运行既有输入捕获测频：低频使用中断捕获，高频使用 DMA1 Stream5 的 `/8` 捕获；测量范围为 1 Hz～1 MHz，串口 `PB6/PB7` 以 921600 8N1 每秒输出一次 `freq=...` 摘要。当前主任务不启动 ADS8688、AD9910、AD9833、ADC、DAC、TIM1、TIM4、AD9226/DCMI、SPI 或 USART3。
+- AD9959 和 TIM2 测频仅完成代码接入，尚未编译、烧录或上板验收。AD9959 模块数字逻辑若为 5 V，首次接线需确认 3.3 V 高电平门限或加入电平转换；PA0 只允许输入 0～3.3 V 方波且必须共地。
+
+- 保留的 ADS8688 demo 仅初始化 GPIO、DMA 和 USART1，并调用 `ADS8688_API_Init()`；主循环仅调用 `ADS8688_API_Process()`。ADS8688 使用手动通道轮询读取模块 `CH1`～`CH4`（内部通道 `0`～`3`），CH5～CH8 关断掩码为 `0xF0`；四路均为 `+-10.24 V` 量程。
 - ADS8688 使用 `PB13=SCLK`、`PB14=SDO`、`PB15=SDI` 的 GPIO 软件 SPI，`PB12` 仍为低有效片选。每轮依次对 CH1～CH4 发送 `MAN_Ch_n` 命令，再进行“CS 拉低、写两个 0x00、读高低字节”的转换读取。此模式规避了当前软件 SPI 下 AUTO_RST 自动扫描四路均读到 `0xFFFF` 的问题；当前为功能验收 demo，不承诺固定 100 kS/s/通道。
 - USART1 保持 `PB6 / USART1_TX`、`PB7 / USART1_RX`、921600 8N1，使用 DMA1 Stream7 异步发送 CH1～CH4 的 FireWater 文本帧：`samples:<ch1>,<ch2>,<ch3>,<ch4>\r\n`。四个值依次对应模块 CH1、CH2、CH3、CH4；发送每 25 组四通道样本取一帧，串口忙时保留最新待发帧，不等待且不阻塞采集。
 - 上电完成 USART1 初始化后，主程序先异步发送一行纯文本 `ok\r\n`，再初始化 ADS8688。`ok` 用于独立确认 USART1、DMA 与 PB6 接线；若看不到 `ok`，应先检查固件是否已烧录、USB-TTL RX→PB6、共地和 921600 8N1。`ok` 后仍无 ADS 四通道数据，则排查 ADS8688 初始化或 SPI 采集。
-- ADC1/ADC2/ADC3、TIM1/TIM4/TIM6、片内 DAC、DAC8830、DDS、AD9226/DCMI、SPI1、USART3 和其他 demo 当前均不启动。
+- ADC1/ADC2/ADC3、TIM1/TIM4/TIM6、片内 DAC、DAC8830、AD9833、AD9910、AD9226/DCMI、SPI1、USART3 和其他 demo 当前均不启动；AD9959 与 TIM2 测频已启动。
 
 - 保留的片内 DAC 任务曾初始化 GPIO、DMA、DAC1 和 TIM4，并调用
   `DAC_Waveform_StartChannel(DAC_CHANNEL_1, DAC_USER_WAVE_SINE, 100000.0f, 1.0f, 1.65f)`。
@@ -70,6 +74,7 @@
 - `API/AD9226_API.*`：当前验证 demo 初始化、逐帧处理、错误提示和 USART3 DMA 摘要输出。
 - `HDL/AD9833.*`：AD9833 寄存器写入、频率、相位和波形控制。
 - `HDL/AD9910.*`：AD9910 GPIO、寄存器写入和 Profile 设置基础代码；`HDL/AD9910_Constants.h` 集中定义 ASF 上限与固定十倍后级的满量程标定参数。
+- `HDL/AD9959.*`：参考 AD9959 GPIO 串行驱动移植的四通道 DDS 基础驱动；支持 CSR 通道选择、频率/幅度/相位寄存器和 IO_UPDATE 锁存。当前 `main.c` 用 PA8/PD4/PD5/PA12/PA6 启动四通道 100 kHz 正弦，尚未编译或上板验证。
 - `HDL/ADS8688.*`：ADS8688 GPIO 软件 SPI 命令、程序寄存、量程、手动转换与自动扫描驱动。
 - `HDL/DAC8830.*`：DAC8830 双通道写码值、毫伏输出、量程选择、零码校准偏移，底层使用 SPI1 硬件发送。
 - `FML/DAC_FML.*`：片上 DAC 波形 DMA 输出。
@@ -130,6 +135,11 @@
 | AD9910_PF0 | PG11 | AD9910 Profile 选择位 0 |
 | AD9910_PF1 | PG9 | AD9910 Profile 选择位 1 |
 | AD9910_PF2 | PG7 | AD9910 Profile 选择位 2 |
+| AD9959_SCLK | PA8 | 当前 demo 软件串行时钟；与 AD9910 SCK、AD9226 TIM1_CH1 冲突 |
+| AD9959_CS | PD4 | 当前 demo 软件串行片选；与 AD9910 CSN 冲突 |
+| AD9959_IO_UPDATE | PD5 | 当前 demo 锁存脉冲；与 AD9910 IUP 冲突 |
+| AD9959_SDIO0 | PA12 | 当前 demo 单向串行数据输出；与 AD9910 SDI 冲突 |
+| AD9959_RESET | PA6 | 当前 demo 硬件复位；与 AD9910 MRT、AD9226 PIXCLK 回路冲突 |
 | DAC8830_CS1 | PE2 | DAC8830 通道 A 片选 |
 | DAC8830_CS2 | PE0 | DAC8830 通道 B 片选 |
 | DAC8830_SDI | PD7 / SPI1_MOSI | DAC8830 硬件 SPI 数据 |
