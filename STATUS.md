@@ -1,10 +1,11 @@
 # 项目状态
 
-## 当前主任务：ADS8688 CH1～CH4 自动扫描采集（2026-07-27）
+## 当前主任务：ADS8688 CH1～CH4 手动通道轮询采集（2026-07-28）
 
-- `main.c` 当前仅初始化 GPIO、DMA、SPI2 和 USART1，并调用 `ADS8688_API_Init()`；主循环仅调用 `ADS8688_API_Process()`。ADS8688 将模块 `CH1`～`CH4`（内部通道 `0`～`3`）加入自动扫描，自动扫描掩码为 `0x0F`、CH5～CH8 关断掩码为 `0xF0`；四路均为 `+-10.24 V` 量程。
-- 目标总转换率为 `400 kS/s`，即每通道 `100 kS/s`。SPI2 以约 17 MHz 前台轮询读取 4 字节转换帧；前台迟到时会跳过过期时隙，不突发补采。该时序目标尚未上板验收。
-- USART1 保持 `PB6 / USART1_TX`、`PB7 / USART1_RX`、921600 8N1，使用 DMA1 Stream7 异步发送 CH1 的 FireWater 文本帧：`CH1:<voltage>\r\n`。发送每 25 组四通道样本取一帧，CH1 显示率为 4 kframes/s；串口忙时保留最新待发帧，不等待且不阻塞采集。
+- `main.c` 当前仅初始化 GPIO、DMA 和 USART1，并调用 `ADS8688_API_Init()`；主循环仅调用 `ADS8688_API_Process()`。ADS8688 使用手动通道轮询读取模块 `CH1`～`CH4`（内部通道 `0`～`3`），CH5～CH8 关断掩码为 `0xF0`；四路均为 `+-10.24 V` 量程。
+- ADS8688 使用 `PB13=SCLK`、`PB14=SDO`、`PB15=SDI` 的 GPIO 软件 SPI，`PB12` 仍为低有效片选。每轮依次对 CH1～CH4 发送 `MAN_Ch_n` 命令，再进行“CS 拉低、写两个 0x00、读高低字节”的转换读取。此模式规避了当前软件 SPI 下 AUTO_RST 自动扫描四路均读到 `0xFFFF` 的问题；当前为功能验收 demo，不承诺固定 100 kS/s/通道。
+- USART1 保持 `PB6 / USART1_TX`、`PB7 / USART1_RX`、921600 8N1，使用 DMA1 Stream7 异步发送 CH1～CH4 的 FireWater 文本帧：`samples:<ch1>,<ch2>,<ch3>,<ch4>\r\n`。四个值依次对应模块 CH1、CH2、CH3、CH4；发送每 25 组四通道样本取一帧，串口忙时保留最新待发帧，不等待且不阻塞采集。
+- 上电完成 USART1 初始化后，主程序先异步发送一行纯文本 `ok\r\n`，再初始化 ADS8688。`ok` 用于独立确认 USART1、DMA 与 PB6 接线；若看不到 `ok`，应先检查固件是否已烧录、USB-TTL RX→PB6、共地和 921600 8N1。`ok` 后仍无 ADS 四通道数据，则排查 ADS8688 初始化或 SPI 采集。
 - ADC1/ADC2/ADC3、TIM1/TIM4/TIM6、片内 DAC、DAC8830、DDS、AD9226/DCMI、SPI1、USART3 和其他 demo 当前均不启动。
 
 - 保留的片内 DAC 任务曾初始化 GPIO、DMA、DAC1 和 TIM4，并调用
@@ -43,7 +44,7 @@
   - FLASH：42460 B / 128 KB（32.39%）。
   - DTCMRAM：3016 B / 128 KB（2.30%）。
   - RAM_D2：0 B / 288 KB。
-- ADS8688 硬件 SPI 驱动、自动扫描、电压换算和 VOFA+ FireWater 输出已完成代码静态检查；四通道自动扫描任务尚未编译、烧录或上板验证。
+- ADS8688 软件 SPI、CH1～CH4 手动通道轮询、电压换算和 VOFA+ FireWater 输出已于 2026-07-28 由用户上板确认可用；AUTO_RST 自动扫描路径曾出现四路 `0xFFFF`，当前不作为主任务使用。
 - 双 ADC 相位差链路已编译、链接通过：ADC1/ADC2 同步采样、1 MS/s、4096 点 FFT、公共频率正弦拟合。
 - 双ADC启动顺序已调整为“独立模式校准ADC1/ADC2→启用双重规则同步模式→启动公共CDR DMA”；采集增加100 ms超时寄存器诊断及DMA完成轮询兜底。
 - CubeMX 测频配置已接入：PA0 / TIM2_CH1、32 位满量程计数、DMA1 Stream5、TIM2 和 DMA 中断优先级 2。
@@ -69,7 +70,7 @@
 - `API/AD9226_API.*`：当前验证 demo 初始化、逐帧处理、错误提示和 USART3 DMA 摘要输出。
 - `HDL/AD9833.*`：AD9833 寄存器写入、频率、相位和波形控制。
 - `HDL/AD9910.*`：AD9910 GPIO、寄存器写入和 Profile 设置基础代码；`HDL/AD9910_Constants.h` 集中定义 ASF 上限与固定十倍后级的满量程标定参数。
-- `HDL/ADS8688.*`：ADS8688 SPI2 命令、程序寄存、量程、手动转换与自动扫描驱动。
+- `HDL/ADS8688.*`：ADS8688 GPIO 软件 SPI 命令、程序寄存、量程、手动转换与自动扫描驱动。
 - `HDL/DAC8830.*`：DAC8830 双通道写码值、毫伏输出、量程选择、零码校准偏移，底层使用 SPI1 硬件发送。
 - `FML/DAC_FML.*`：片上 DAC 波形 DMA 输出。
 - `FML/ADC_FML.*`：双ADC同步DMA缓冲、校准、帧重启、回调状态和DCache维护。
@@ -88,7 +89,7 @@
 - `API/FREQ_API.*`：测频初始化、主循环处理、结果访问和 USART1 摘要输出入口。
 - `API/PHASE_API.*`：当前双ADC相位差demo入口、摘要输出和逐帧重启。
 - `API/AD9910_API.*`：按波形类型、频率和直接输出 mVpp 参数启动 AD9910，支持幂等初始化与原始 14 位 ASF 单 Profile 正弦输出；连续正弦更新只重写 Profile 0，从 RAM 模式切回时才重新配置单 Profile 模式。
-- `API/ADS8688_API.*`：CH1～CH4 自动扫描初始化、连续采样和 CH1 VOFA+ FireWater 输出。
+- `API/ADS8688_API.*`：CH1～CH4 手动通道轮询初始化、连续采样和四通道 VOFA+ FireWater 输出。
 - `HDL/TJC_HMI.*`：淘晶驰字符串指令发送、文本/数值赋值、标准触摸帧和 demo 自定义帧解析。
 - `API/TJC_HMI_API.*`：串口屏 demo 的页面初始化、周期刷新和按钮业务入口，当前主任务不调用。
 
@@ -109,9 +110,9 @@
 | DCMI_VSYNC_GATE | PB2 → PB7 | 必须外部短接 |
 | ADS8688_CS | PB12 | ADS8688 片选，软件控制，低有效 |
 | ADS8688_RST_PD | PC4 | ADS8688 复位/低功耗控制，demo 保持高电平 |
-| ADS8688_SCK | PB13 / SPI2_SCK | 硬件 SPI 时钟，17 MHz |
-| ADS8688_SDO | PB14 / SPI2_MISO | ADS8688 数据输出 |
-| ADS8688_SDI | PB15 / SPI2_MOSI | ADS8688 命令输入 |
+| ADS8688_SCK | PB13 | GPIO 软件 SPI 时钟 |
+| ADS8688_SDO | PB14 | ADS8688 数据输出，GPIO 输入 |
+| ADS8688_SDI | PB15 | ADS8688 命令输入，GPIO 输出 |
 | FREQ_IN / TIM2_CH1 | PA0 | 方波测频输入，上升沿，0 到 3.3 V |
 | ADC1_INP1 | PA1_C | 当前 ADC端口预设采样输入，必须限制在 0～3.3 V |
 | ADC2_INP7 | PA7 | 当前 ADC端口预设采样输入，必须限制在 0～3.3 V |
@@ -141,9 +142,9 @@
 - AD9226 目前仅完成编译验证。上板后需先确认 PA8/PA6 均为 1 MHz 时钟，再检查 12 根数据线位序、静态输入码、1 kHz 正弦的 `min/max/mean`，最后验收频率和 THD。
 - IIR ADC→DAC 链路已完成 1 kHz 双通道实测：PA1_C 约 1.167 Vpp，PA4 约 0.603 Vpp，对应增益约 0.517，而理论值约 0.505。DMA 同侧空闲半块回写修复已烧录；修复后 PA4 的 9 次原生 Vpp 为 0.587～0.620 V，标准差约 0.011 V，频率约 999～1016 Hz，未再出现此前单次 1.133 Vpp 的明显离群读数。短窗 BYTE 波形导出成功但不用于幅值验收；覆盖完整 1.024 ms DMA 周期的长窗导出因 USB 二进制块截断失败。仍待复测 100 Hz、10 kHz、延迟、削顶、半块交界连续性及 ADC DMA 错误计数。
 - AD9226 与 AD9910 共用 PA6/PA8，与片上 DAC 共用 PA4，与原板载 USART1 共用 PB6/PB7，并占用 TIM1；当前主任务不得同时初始化这些模块。切换回其他 demo 时需恢复对应 `.ioc` 引脚和 TIM1 配置。
-- ADS8688 四通道任务尚未编译或上板。后续需逐路用实际电压确认通信、零点、正负满量程、自动扫描顺序和 VOFA+ 波形。
+- ADS8688 四通道手动轮询已由用户确认运行成功。后续建议逐路用已知直流电压复核零点、正负满量程、通道顺序和 VOFA+ 波形幅度。
 - 当前 ADC端口预设将 `.ioc` 与生成的 ADC1 配置设为 halfword normal DMA/one-shot。PA1 和 PA1_C 是本板封装的独立焊盘：前者保留 AD9833-CS GPIO，后者为 ADC1_INP1 专用模拟直连输入。本次 DAC2 自检在生成代码中手工增加 PA5、DAC1_CH2 和 DMA1 Stream2，尚未回写 `.ioc`；后续生成代码前需在 CubeMX 中核对这些运行时覆盖项。
-- 当前 ADS8688 demo 的 VOFA+ FireWater 使用单通道文本帧 `CH1:<voltage>\r\n`；不得在同一 UART 插入其他文本日志，否则会产生无关通道或干扰解析。
+- 当前 ADS8688 demo 的 VOFA+ FireWater 使用四通道文本帧 `samples:<ch1>,<ch2>,<ch3>,<ch4>\r\n`；除上电 `ok` 心跳外，不得在同一 UART 插入其他文本日志，否则会产生无关通道或干扰解析。
 
 - 方波测频尚未用实物信号源覆盖验证 1 Hz、频段切换点、10 kHz 分辨率切换点和 1 MHz 上限；应重点观察串口 `raw`、`mode`、`ticks` 和 `periods`。
 - 当前 TIM2 标称时钟为 75 MHz，来自内部 HSI。已按本次 1 MHz 实测做单点比例校准，但系数可能随板卡、温度和时钟条件变化；高精度场景仍建议多频点复核或使用外部高精度时钟。

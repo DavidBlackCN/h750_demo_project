@@ -25,6 +25,8 @@ static void usart_async_start(UART_HandleTypeDef *huart, uint16_t length)
         usart_send_fail_count++;
         __disable_irq();
         s_async_tx_active = 0U;
+        s_async_active_length = 0U;
+        s_async_pending_length = 0U;
         __enable_irq();
     }
 }
@@ -143,6 +145,7 @@ uint8_t USART_FML_OnError(UART_HandleTypeDef *huart)
 
     __disable_irq();
     s_async_tx_active = 0U;
+    s_async_active_length = 0U;
     s_async_pending_length = 0U;
     __enable_irq();
     usart_send_fail_count++;

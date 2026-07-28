@@ -12,7 +12,7 @@ typedef enum
     ADS8688_RANGE_UNIPOLAR_5V12  = 0x04U
 } ADS8688_Range;
 
-HAL_StatusTypeDef ADS8688_Init(SPI_HandleTypeDef *hspi);
+HAL_StatusTypeDef ADS8688_Init(void);
 HAL_StatusTypeDef ADS8688_WriteCommand(uint16_t command);
 HAL_StatusTypeDef ADS8688_WriteProgramRegister(uint8_t address, uint8_t data);
 HAL_StatusTypeDef ADS8688_ReadProgramRegister(uint8_t address, uint8_t *data);
@@ -22,7 +22,10 @@ HAL_StatusTypeDef ADS8688_SetChannelPowerDownMask(uint8_t channel_mask);
 HAL_StatusTypeDef ADS8688_StartAutoScan(void);
 HAL_StatusTypeDef ADS8688_SelectManualChannel(uint8_t channel);
 HAL_StatusTypeDef ADS8688_ReadConversion(uint16_t *code);
-HAL_StatusTypeDef ADS8688_ReadConversionFast(uint16_t *code);
+HAL_StatusTypeDef ADS8688_ReadAutoScan(uint16_t *codes,
+                                       uint8_t channel_count);
+HAL_StatusTypeDef ADS8688_ReadManualChannels(uint16_t *codes,
+                                             uint8_t channel_count);
 uint32_t ADS8688_GetErrorCount(void);
 
 #endif

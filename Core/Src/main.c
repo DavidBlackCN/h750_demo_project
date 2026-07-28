@@ -19,13 +19,13 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "dma.h"
-#include "spi.h"
 #include "usart.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "ADS8688_API.h"
+#include "USART_FML.h"
 
 /* USER CODE END Includes */
 
@@ -92,9 +92,12 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_SPI2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  /* Send a plain UART heartbeat before ADS8688 initialization so the serial
+     connection can be verified independently of the SPI capture path. */
+  (void)Usart_Send_ComputerAsync(&huart1, "ok\r\n");
+
   if (ADS8688_API_Init() != HAL_OK)
   {
     Error_Handler();
