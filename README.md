@@ -96,3 +96,8 @@ and captures one final frame. The final result reports measured frequency plus
 `wave=sine|triangle|square|unknown` and the `h3`/`h5` harmonic ratios. TIM2
 frequency measurement initialization and processing calls remain in `main.c` as
 comments and are not active.
+## Active task: G1 one-shot Vpp measurement
+
+At boot, ADC1 (`PA1_C / ADC1_INP1`) acquires one 4096-sample frame through TIM1/DMA at 1.875 MS/s. ADC2 is not initialized by this task. USART1 PB6 (921600 8N1) sends the raw calibrated voltage values, Vpp/RMS, and an FFT summary. The FFT API accepts only a completed `float` voltage frame, point count, and sample-rate descriptor; it has no ADC, DMA, cache, or pin dependency, so an AD9226 capture path can reuse it after code-to-voltage conversion.
+
+The one-shot report sends the 4096 calibrated waveform samples to VOFA+ as FireWater `wave:<mV>` frames, followed by all 2047 non-DC half-spectrum bins as `spectrum:<mV>` frames. Only after those graph frames does USART1 send the text `harmonics` summary (fundamental frequency plus the detected harmonic parameters).

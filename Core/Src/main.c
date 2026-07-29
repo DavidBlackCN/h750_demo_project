@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "adc.h"
 #include "dma.h"
 #include "tim.h"
 #include "usart.h"
@@ -25,9 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "AD9833_API.h"
-#include "AD9910_API.h"
-#include "TJC_HMI_API.h"
+#include "G1_VPP_API.h"
 
 /* USER CODE END Includes */
 
@@ -94,25 +93,23 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_USART3_UART_Init();
+  MX_ADC1_Init();
+  MX_TIM1_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  if ((AD9833_API_StartSine(1000.0f, 0.0f) != HAL_OK) ||
-      (AD9910_API_StartWaveform(AD9910_API_WAVE_SINE,
-                                100000U, 300U) != HAL_OK) ||
-      (TJC_HMI_API_Init(&huart3) != HAL_OK))
+  if (G1_VPP_API_Init() != HAL_OK)
   {
     Error_Handler();
   }
   /* USER CODE END 2 */
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    TJC_HMI_API_Process();
+    G1_VPP_API_Process();
   }
   /* USER CODE END 3 */
 }

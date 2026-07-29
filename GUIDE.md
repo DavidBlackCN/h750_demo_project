@@ -519,3 +519,10 @@ automatically enter the 40 kS/s low-frequency coarse and 1 Hz fine-scan path,
 which covers 10 Hz through 12 kHz. The small overlap lets an actual 10 kHz
 signal enter the fine path even when the high-rate coarse FFT lands slightly
 above the 10 kHz boundary.
+## G1 one-shot Vpp debug output
+
+Connect the conditioned, in-range signal only to `PA1_C / ADC1_INP1`. Connect the USB-TTL RX to `PB6 / USART1_TX` and share ground; use 921600 8N1. ADC2 is not initialized by this task. Calibrate the analog front-end using `G1_VPP_API_SetCalibration()` before treating the values as input-referred results.
+
+VOFA+ receives 4096 calibrated waveform frames in FireWater form `wave:<mV>`, followed by 2047 non-DC FFT bins as `spectrum:<mV>`. The horizontal axis of `spectrum` is the FFT bin index; its frequency is `bin * df`, where `df = Fs / 4096`. The VOFA+ spectrum remains a sine-peak amplitude. Harmonic peak search is 10 kHz to 205 kHz, deliberately extending 5 kHz above the 200 kHz task edge so the nearest FFT bin of a valid 200 kHz component is not discarded. Each peak frequency first uses three-bin log-parabolic interpolation. The provisional base frequency is then refined by weighted least squares over the integer-related peak frequencies. After both VOFA+ data sections, USART1 prints only `harmonics begin/end`: `fundamental_Hz` and up to six `harmonic n=<order> f_Hz=<interpolated peak> fit_Hz=<n times least-squares fundamental> amp_mVpp=<peak-to-peak amplitude> phase_rad=<phase>` records. The serial harmonic amplitude is twice the FFT sine-peak amplitude so it can be compared directly with signal-source Vpp settings. The fundamental is still a preliminary candidate inferred from integer-related peaks; it is not yet the final fitted fundamental or the final Vpp calculation.
+
+`G1_FFT_API_Analyze()` is deliberately independent of ADC capture. Give it a completed `float` voltage array, `sample_count`, and `g1_fft_input_t` with sample rate/search range. The future AD9226 path must do its own signed-code conversion, gain/offset calibration, DMA/cache handling, then passes the voltage frame to the same API.

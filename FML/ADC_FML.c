@@ -3,6 +3,7 @@
 #include "IIR_ADDA_FML.h"
 #include "ADC2_CAPTURE_FML.h"
 #include "ADC_VOFA_FML.h"
+#include "G1_VPP_ADC_FML.h"
 #include "SUPER_FFT.h"
 #include "USART_FML.h"
 #include "adc.h"
@@ -74,6 +75,11 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
+    if (G1_VPP_ADC_FML_OnAdcComplete(hadc))
+    {
+        return;
+    }
+
     if (ADC_VOFA_FML_IsActive())
     {
         ADC_VOFA_FML_OnAdcComplete(hadc);
@@ -109,6 +115,11 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 
 void HAL_ADC_ErrorCallback(ADC_HandleTypeDef *hadc)
 {
+    if (G1_VPP_ADC_FML_OnAdcError(hadc))
+    {
+        return;
+    }
+
     if (ADC_VOFA_FML_IsActive())
     {
         ADC_VOFA_FML_OnAdcError(hadc);

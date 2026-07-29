@@ -50,8 +50,8 @@ void MX_ADC1_Init(void)
   */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  /* ADC port preset uses one ADC1 frame; keep the configured 10-bit mode. */
-  hadc1.Init.Resolution = ADC_RESOLUTION_10B;
+  /* G1 task 1: PA1_C direct channel, 14-bit standard mode. */
+  hadc1.Init.Resolution = ADC_RESOLUTION_14B;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
@@ -104,7 +104,8 @@ void MX_ADC2_Init(void)
 
   hadc2.Instance = ADC2;
   hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc2.Init.Resolution = ADC_RESOLUTION_10B;
+  /* G1 task: PA7 / ADC2_INP7, 14-bit standard mode. */
+  hadc2.Init.Resolution = ADC_RESOLUTION_14B;
   hadc2.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc2.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc2.Init.LowPowerAutoWait = DISABLE;
@@ -242,8 +243,9 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
 
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_ADC;
     PeriphClkInitStruct.PLL2.PLL2M = 4;
-    PeriphClkInitStruct.PLL2.PLL2N = 10;
-    PeriphClkInitStruct.PLL2.PLL2P = 2;
+    /* 64 MHz HSI / 4 * 15 / 8 = 30 MHz ADC kernel clock. */
+    PeriphClkInitStruct.PLL2.PLL2N = 15;
+    PeriphClkInitStruct.PLL2.PLL2P = 8;
     PeriphClkInitStruct.PLL2.PLL2Q = 2;
     PeriphClkInitStruct.PLL2.PLL2R = 2;
     PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_3;

@@ -1,10 +1,13 @@
 # 项目状态
 
-## 当前主任务：AD9833 + AD9910 正弦输出与淘晶驰串口屏并行（2026-07-28）
+## 当前主任务：G题第1问 ADC1 峰峰值测量（2026-07-29）
 
-- `main.c` 当前初始化 GPIO、DMA 和 USART3。AD9833 在 `PA1=FSYNC`、`PH4=SDATA`、`PH5=SCLK` 上配置 FREQ0 为 1 kHz、相位 0 deg 的正弦；AD9910 在 `PA6=MRT`、`PA8=SCK`、`PA12=SDI`、`PD4=CSN`、`PD5=IUP`、`PG11/PG9/PG7=PF0/PF1/PF2` 上配置 Profile 0 为 100 kHz、模块直接输出端目标 300 mVpp 的正弦。两路 DDS 均在启动阶段完成寄存器写入，之后由各自芯片持续输出。
-- 串口屏使用 USART3 `PB10/PB11`、115200 8N1，运行 `TJC_HMI_API_Init(&huart3)` 与 `TJC_HMI_API_Process()`。页面状态机仍只记录任务选择和参数、显示 `RESERVED`，不启动题目业务。初始化不再等待固定 800 ms；屏幕完成上电后发送 `0x88 FF FF FF` ready 帧，前台状态机再发送 `page home`。
-- 主循环只轮询串口屏，不重写 AD9833 或 AD9910，因此屏幕页面、按键和参数操作不会打断两个 DDS 的连续输出。当前不初始化 USART1、TIM2、ADC、DAC、AD9959、SPI 外设或其他题目状态机。此任务尚未编译、烧录或上板验收。
+- `main.c` 当前只初始化 GPIO、DMA、ADC1 和 TIM1；不启动 DDS、串口屏、ADC2/ADC3、DAC、DCMI 或其他题目任务。
+- ADC1 使用 `PA1_C / ADC1_INP1` 单端直连通道、14 位标准模式、TIM1_TRGO 触发、normal halfword DMA。ADC 内核时钟改为 30 MHz，TIM1 以 1.875 MS/s 触发，4096 点帧的频率间隔为约 457.8 Hz。
+- `FML/G1_VPP_ADC_FML.*` 负责 ADC1 单帧 DMA、单端 offset/linearity 校准、TIM1 触发、D-Cache 和完成轮询；ADC2 不由该主任务初始化或采集。`BLL/G1_VPP_BLL.*` 对原始码进行八点插值后求峰峰值。
+- `FML/G1_FFT_FML.*`、`BLL/G1_FFT_BLL.*` 和 `API/G1_FFT_API.*` 为独立频谱链路：输入仅为已完成的浮点电压帧、点数和采样率，不依赖 ADC、DMA、缓存或引脚；后续 AD9226 将码值换算/校准为电压后可直接复用。`API/G1_VPP_API.*` 在 ADC1 帧完成后，以 VOFA+ FireWater 连续发送 4096 个 `wave:<mV>` 原始波形点和 2047 个 `spectrum:<mV>` 非直流半边频谱点；图形帧保持 FFT 正弦峰值幅值。谐波找峰范围为 10 kHz～205 kHz，给题目 200 kHz 上限预留 5 kHz 的 FFT bin 保护带，避免 200 kHz 分量的最近 bin 略高于上限而被丢弃。每个谐波峰先做三点对数抛物线频率插值，再用整数倍相关峰的幅值加权最小二乘细化共同基频；串口的 `f_Hz` 是单峰插值频率，`fit_Hz` 是谐波次数乘以细化基频。图形帧后串口仅打印基波和至多六个谐波相关峰参数，其中 `amp_mVpp` 为正弦峰值幅值的两倍，以便与信号源 Vpp 直接比较。尚未接入最终幅相联合拟合/Vpp 重构。
+- 结果通过 `G1_VPP_API_GetResult()` 读取。默认按 ADC 引脚输入换算（前端增益为 1）；接入实际偏置放大链后，必须用 `G1_VPP_API_SetCalibration()` 写入实际 ADC 参考、前端增益和校准比例。
+- 本任务尚未编译、烧录或上板验收。
 
 - 保留的 ADS8688 demo 仅初始化 GPIO、DMA 和 USART1，并调用 `ADS8688_API_Init()`；主循环仅调用 `ADS8688_API_Process()`。ADS8688 使用手动通道轮询读取模块 `CH1`～`CH4`（内部通道 `0`～`3`），CH5～CH8 关断掩码为 `0xF0`；四路均为 `+-10.24 V` 量程。
 - ADS8688 使用 `PB13=SCLK`、`PB14=SDO`、`PB15=SDI` 的 GPIO 软件 SPI，`PB12` 仍为低有效片选。每轮依次对 CH1～CH4 发送 `MAN_Ch_n` 命令，再进行“CS 拉低、写两个 0x00、读高低字节”的转换读取。此模式规避了当前软件 SPI 下 AUTO_RST 自动扫描四路均读到 `0xFFFF` 的问题；当前为功能验收 demo，不承诺固定 100 kS/s/通道。
@@ -265,3 +268,23 @@
   the 1 Hz fine scan even when high-rate coarse FFT interpolation lands slightly
   above the 10 kHz boundary. This fixes the former 10 kHz lower search boundary,
   which could classify a 10 Hz signal as an arbitrary high-frequency noise peak.
+## G1 task update: one-shot UART Vpp result (2026-07-29)
+
+- `main.c` initializes GPIO, DMA, ADC1, TIM1, and USART1 only.
+- ADC1 collects one 4096-sample frame on `PA1_C / ADC1_INP1`; after analysis it keeps ADC1/TIM1/DMA stopped and USART1 PB6 (921600 8N1) sends `vpp_mV=<value>\r\n`.
+- No frequency or spectrum result is produced. This path has not been built, flashed, or hardware-validated.
+
+## G1 task update: raw waveform and AC RMS result (2026-07-29)
+
+- With ADC1/TIM1/DMA already stopped, USART1 sends `raw begin`, then 4096 lines of calibrated input-side voltage `raw_mV:<value>`, then `raw end`.
+- The final two lines are `vpp_mV=<value>` and `vrms_mV=<value>`. `vrms_mV` is the AC RMS after subtracting the frame mean, not the RMS including the analog bias.
+
+## G1 task update: ADC2 one-shot path (2026-07-29)
+
+- The active one-shot path now uses ADC2 `PA7 / ADC2_INP7`, 14-bit standard mode, 30 MHz ADC kernel clock, TIM1_TRGO at 1.875 MS/s, and DMA1 Stream1 normal halfword DMA.
+- ADC2 completion/error callbacks immediately stop TIM1; the foreground stops ADC2/DMA, sends `raw_mV`, `vpp_mV`, and `vrms_mV`, then stays stopped. ADC1 modules are retained but not initialized by `main.c`.
+
+## G1 task update: sequential ADC1 then ADC2 (2026-07-29)
+
+- Historical note (superseded by the current G1 ADC1-only task above): a previous G1 debug version initialized ADC1 and ADC2 sequentially. It is no longer the active startup path.
+- Historical note (superseded): ADC1 and ADC2 previously shared TIM1_TRGO in sequential captures. The current G1 task uses ADC1 only.

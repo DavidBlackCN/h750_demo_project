@@ -83,6 +83,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     API/DPLL_API.c
     API/FFT_API.c
     API/FREQ_API.c
+    API/G1_VPP_API.c
+    API/G1_FFT_API.c
     API/IIR_AD_DA_API.c
     API/PHASE_API.c
     API/TJC_HMI_API.c
@@ -95,6 +97,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     BLL/DLIA_BLL.c
     BLL/DPLL_BLL.c
     BLL/FFT_BLL.c
+    BLL/G1_VPP_BLL.c
+    BLL/G1_FFT_BLL.c
     BLL/PHASE_BLL.c
     BLL/USART_BLL.c
     HDL/AD9226.c
@@ -115,6 +119,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     FML/DAC_RATE_TEST_FML.c
     FML/FFT_FML.c
     FML/FREQ_FML.c
+    FML/G1_VPP_ADC_FML.c
+    FML/G1_FFT_FML.c
     FML/IIR_ADDA_FML.c
     FML/IIR_FML.c
     FML/USART_FML.c
