@@ -52,6 +52,7 @@ static void g1_vpp_send_error(const char *stage, uint32_t code)
 }
 
 #define G1_VPP_HARMONIC_SEARCH_MAX_HZ 505000.0f
+#define G1_VPP_RAD_TO_DEG              57.2957795130823208768f
 
 static bool g1_vpp_start_key_is_pressed(void)
 {
@@ -146,7 +147,7 @@ static HAL_StatusTypeDef g1_vpp_analyze_and_send_fft(const uint16_t *samples,
     }
 
     length = snprintf(message, sizeof(message),
-                      "harmonics begin count=%lu\r\nfundamental_Hz=%.3f\r\nfit_vpp_mV=%.3f\r\nfit_vrms_mV=%.3f\r\n",
+                      "begin count=%lu\r\nfa_j=%.0f\r\nUpp=%.3f\r\nUrms=%.3f\r\n",
                       (unsigned long)harmonic_count,
                       (double)s_fft_result.fundamental_hz,
                       (double)(s_fft_result.fitted_vpp_volts * 1000.0f),
@@ -167,12 +168,12 @@ static HAL_StatusTypeDef g1_vpp_analyze_and_send_fft(const uint16_t *samples,
         }
 
         length = snprintf(message, sizeof(message),
-                          "harmonic n=%lu f_Hz=%.3f fit_Hz=%.3f amp_mVpp=%.3f phase_rad=%.4f\r\n",
+                          "n=%lu f_Hz=%.0f fit_Hz=%.0f amp_mVpp=%.3f phase_deg=%.3f\r\n",
                           (unsigned long)component->harmonic_order,
                           (double)component->frequency_hz,
                           (double)component->fitted_frequency_hz,
                           (double)(component->peak_amplitude_volts * 2000.0f),
-                          (double)component->phase_radians);
+                          (double)(component->phase_radians * G1_VPP_RAD_TO_DEG));
         if ((length <= 0) || (length >= (int)sizeof(message)) ||
             (Usart_Send_Computer(&huart1, message) != HAL_OK))
         {
@@ -180,7 +181,7 @@ static HAL_StatusTypeDef g1_vpp_analyze_and_send_fft(const uint16_t *samples,
         }
     }
 
-    if (Usart_Send_Computer(&huart1, "harmonics end\r\n") != HAL_OK)
+    if (Usart_Send_Computer(&huart1, "end\r\n") != HAL_OK)
     {
         return HAL_ERROR;
     }

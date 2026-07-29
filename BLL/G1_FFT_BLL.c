@@ -9,11 +9,26 @@ static float s_windowed_samples[G1_FFT_FML_MAX_SAMPLES];
 static float s_real[G1_FFT_FML_MAX_SAMPLES];
 static float s_imaginary[G1_FFT_FML_MAX_SAMPLES];
 
-/* The contest source contains the fundamental plus at most two components
-   whose orders are no greater than four.  Do not manufacture a subharmonic
-   from unrelated higher-frequency distortion. */
-#define G1_FFT_MAX_TASK_HARMONIC_ORDER 4U
+/* The contest source contains the fundamental plus at most two harmonic
+   components, but it does not impose a numerical order limit.  The highest
+   valid order is therefore set by search_max_frequency_hz / search_min_frequency_hz
+   (50 for the current 10 kHz to 505 kHz search). */
 #define G1_FFT_MIN_FUNDAMENTAL_PEAK_V  0.0005f
+
+static uint32_t g1_fft_get_max_harmonic_order(const g1_fft_input_t *input)
+{
+    uint32_t max_order;
+
+    if ((input == NULL) || (input->search_min_frequency_hz <= 0.0f) ||
+        (input->search_max_frequency_hz < input->search_min_frequency_hz))
+    {
+        return 0U;
+    }
+
+    max_order = (uint32_t)floorf(input->search_max_frequency_hz /
+                                 input->search_min_frequency_hz);
+    return (max_order == 0U) ? 1U : max_order;
+}
 
 static float g1_fft_refine_peak_bin(const g1_fft_result_t *result,
                                     uint32_t bin_index)
@@ -120,10 +135,21 @@ static float g1_fft_infer_fundamental(const float *samples,
                                       g1_fft_result_t *result)
 {
     float best_frequency = 0.0f;
+    const uint32_t max_harmonic_order = g1_fft_get_max_harmonic_order(input);
 
-    for (uint32_t candidate = 0U; candidate < result->component_count; ++candidate)
+    for (uint32_t candidate = 0U;
+         (candidate < result->component_count) && (max_harmonic_order != 0U);
+         ++candidate)
     {
-        for (uint32_t divisor = 1U; divisor <= 4U; ++divisor)
+        uint32_t max_divisor = (uint32_t)floorf(
+            result->components[candidate].frequency_hz / input->search_min_frequency_hz);
+
+        if (max_divisor > max_harmonic_order)
+        {
+            max_divisor = max_harmonic_order;
+        }
+
+        for (uint32_t divisor = 1U; divisor <= max_divisor; ++divisor)
         {
             const float base_frequency = result->components[candidate].frequency_hz /
                 (float)divisor;
@@ -147,7 +173,7 @@ static float g1_fft_infer_fundamental(const float *samples,
                                                 base_frequency) + 0.5f);
 
                 if ((harmonic >= 1.0f) &&
-                    (harmonic <= (float)G1_FFT_MAX_TASK_HARMONIC_ORDER) &&
+                    (harmonic <= (float)max_harmonic_order) &&
                     (fabsf(result->components[component].frequency_hz -
                            (harmonic * base_frequency)) <=
                      (1.5f * result->bin_width_hz)))
@@ -167,13 +193,14 @@ static float g1_fft_infer_fundamental(const float *samples,
     return best_frequency;
 }
 
-static float g1_fft_refine_fundamental_least_squares(g1_fft_result_t *result)
+static float g1_fft_refine_fundamental_least_squares(g1_fft_result_t *result,
+                                                      uint32_t max_harmonic_order)
 {
     const float initial_frequency = result->fundamental_hz;
     float numerator = 0.0f;
     float denominator = 0.0f;
 
-    if (initial_frequency <= 0.0f)
+    if ((initial_frequency <= 0.0f) || (max_harmonic_order == 0U))
     {
         return 0.0f;
     }
@@ -187,7 +214,7 @@ static float g1_fft_refine_fundamental_least_squares(g1_fft_result_t *result)
                              component->peak_amplitude_volts;
 
         if ((harmonic < 1.0f) ||
-            (harmonic > (float)G1_FFT_MAX_TASK_HARMONIC_ORDER) ||
+            (harmonic > (float)max_harmonic_order) ||
             (fabsf(component->frequency_hz - (harmonic * initial_frequency)) >
              (1.5f * result->bin_width_hz)))
         {
@@ -221,6 +248,7 @@ bool G1_FFT_BLL_Analyze(const float *voltage_samples,
     if ((voltage_samples == NULL) || (input == NULL) || (result == NULL) ||
         (sample_count < 8U) || (sample_count > G1_FFT_FML_MAX_SAMPLES) ||
         (input->sample_rate_hz <= 0.0f) ||
+        (input->search_min_frequency_hz <= 0.0f) ||
         (input->search_max_frequency_hz < input->search_min_frequency_hz))
     {
         return false;
@@ -353,7 +381,8 @@ bool G1_FFT_BLL_Analyze(const float *voltage_samples,
             g1_fft_insert_component(result, &component);
         }
     }
-    result->fundamental_hz = g1_fft_refine_fundamental_least_squares(result);
+    result->fundamental_hz = g1_fft_refine_fundamental_least_squares(
+        result, g1_fft_get_max_harmonic_order(input));
     if (result->fundamental_hz > 0.0f)
     {
         for (uint32_t index = 0U; index < result->component_count; ++index)
