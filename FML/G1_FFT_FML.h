@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define G1_FFT_FML_MAX_SAMPLES 4096U
+#define G1_FFT_FML_MAX_SAMPLES 8192U
 
 /* This interface accepts only a completed real-valued voltage frame. */
 bool G1_FFT_FML_TransformReal(const float *samples,

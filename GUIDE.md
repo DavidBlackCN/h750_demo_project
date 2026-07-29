@@ -1,5 +1,17 @@
 # 当前主任务：AD9833 + AD9910 双正弦与串口屏并行
 
+## 当前主任务：ADC1 采集、FFT 与谐波分量测量
+
+当前启动代码只初始化 GPIO、DMA、ADC1、TIM1 和 USART1。信号接入 `PA1_C / ADC1_INP1`，必须与开发板共地且 ADC 引脚电压保持在允许范围内。ADC1 使用 14 位、PLL2P 64 MHz（本板 ADC 路径有效约 32 MHz）、BOOST 和 1.5 周期采样时间；TIM1_TRGO 经 DMA1 Stream0 单次采集 8192 点，运行时采样率为 3.2 MS/s，FFT 间隔为 390.625 Hz。采集完成后才停止 ADC/TIM 并开始串口输出。
+
+启动按键接 `PC4`：按键另一端接 GND，固件使用内部上拉，因此按下为低电平有效。上电后先松开按键；每次稳定按下约 30 ms 启动一次采集。采集、计算和串口输出期间不会响应按键；输出结束后必须松开再按一次，才能开始下一次采集。`PC4` 复用了保留 ADS8688 demo 的 `RST_PD`，当前任务不能同时启动 ADS8688。
+
+USB-TTL 接线为：适配器 RX 接 `PB6 / USART1_TX`，适配器 TX 可选接 `PB7 / USART1_RX`，并共地；串口设置为 115200、8N1。上电完成 USART1 初始化后先发送一行 `ok`；每次按键采样与 FFT 完成后，串口只发送 `fundamental_Hz`、`fit_vpp_mV`、`fit_vrms_mV` 与 `harmonic n=... f_Hz=... fit_Hz=... amp_mVpp=...` 最终测量摘要；不再发送原始波形或频谱。
+
+若采样或计算失败，固件只额外发送一行 `error stage=<adc_start|adc_capture|waveform|fft|fit> code=<code>`，用于定位，不会在正常测量过程中输出调试数据。`fft` 与 `fit` 的错误码分别为 `61441` 和 `61442`。
+
+当前 FFT 谱峰搜索范围为 10～505 kHz；505 kHz 是为第 2 项 500 kHz 边界预留的频点余量，不代表已经完成 500 kHz 幅频精度验收。码值换算按 3.3 V ADC 基准、前端增益 1；未以直流点和已知正弦幅度做实物标定前，谐波频率可用于调试，但幅值不能作为最终精度结论。
+
 `main.c` 在启动阶段调用 `AD9833_API_StartSine(1000.0f, 0.0f)` 和 `AD9910_API_StartWaveform(AD9910_API_WAVE_SINE, 100000U, 300U)`，随后初始化 USART3 并持续调用 `TJC_HMI_API_Process()`。AD9833 输出 1 kHz、0 deg 正弦；AD9910 输出模块直接端 100 kHz、300 mVpp 正弦。DDS 配置不在主循环重复执行，输出由芯片自主保持，因此串口屏页面和按键处理不会打断两路输出。串口屏使用 `PB10/PB11`、115200 8N1；USART1和 VOFA+ 回显验证不在当前主任务启动。
 
 # 保留任务：DDS 与片内 DAC 同时输出
@@ -519,10 +531,10 @@ automatically enter the 40 kS/s low-frequency coarse and 1 Hz fine-scan path,
 which covers 10 Hz through 12 kHz. The small overlap lets an actual 10 kHz
 signal enter the fine path even when the high-rate coarse FFT lands slightly
 above the 10 kHz boundary.
-## G1 one-shot Vpp debug output
+## Active AD9226 5 MS/s VOFA+ capture test
 
-Connect the conditioned, in-range signal only to `PA1_C / ADC1_INP1`. Connect the USB-TTL RX to `PB6 / USART1_TX` and share ground; use 921600 8N1. ADC2 is not initialized by this task. Calibrate the analog front-end using `G1_VPP_API_SetCalibration()` before treating the values as input-referred results.
+Keep the reference AD9226 wiring unchanged: `PA8 / TIM1_CH1` must branch to both the AD9226 CLK input and `PA6 / DCMI_PIXCLK`; `PB1 -> PA4 / DCMI_HSYNC` and `PB2 -> PB7 / DCMI_VSYNC` remain required loopbacks. The 12-bit data bus remains `PC6/7/8/9/10/12`, `PB5/6`, `PD2`, and `PE4/5/6`. Connect USB-TTL RX to board P10 (`PB10 / USART3_TX`), optionally USB-TTL TX to P11 (`PB11 / USART3_RX`), share ground, and use 115200 8N1.
 
-VOFA+ receives 4096 calibrated waveform frames in FireWater form `wave:<mV>`, followed by 2047 non-DC FFT bins as `spectrum:<mV>`. The horizontal axis of `spectrum` is the FFT bin index; its frequency is `bin * df`, where `df = Fs / 4096`. The VOFA+ spectrum remains a sine-peak amplitude. Harmonic peak search is 10 kHz to 205 kHz, deliberately extending 5 kHz above the 200 kHz task edge so the nearest FFT bin of a valid 200 kHz component is not discarded. Each peak frequency first uses three-bin log-parabolic interpolation. The provisional base frequency is then refined by weighted least squares over the integer-related peak frequencies. After both VOFA+ data sections, USART1 prints only `harmonics begin/end`: `fundamental_Hz` and up to six `harmonic n=<order> f_Hz=<interpolated peak> fit_Hz=<n times least-squares fundamental> amp_mVpp=<peak-to-peak amplitude> phase_rad=<phase>` records. The serial harmonic amplitude is twice the FFT sine-peak amplitude so it can be compared directly with signal-source Vpp settings. The fundamental is still a preliminary candidate inferred from integer-related peaks; it is not yet the final fitted fundamental or the final Vpp calculation.
+After reset, the test captures exactly one 8192-point frame at 5 MS/s, stops DCMI/DMA, and sends every point to VOFA+ as `ad9226_raw_mV:<value>`. Select FireWater in VOFA+. The conversion is copied from the reference board (`10 V` input span, zero code `2458`, gain `1`) and is not a calibration result for this board. No FFT, THD, Vpp, RMS, frequency, or display task is started in this test.
 
-`G1_FFT_API_Analyze()` is deliberately independent of ADC capture. Give it a completed `float` voltage array, `sample_count`, and `g1_fft_input_t` with sample rate/search range. The future AD9226 path must do its own signed-code conversion, gain/offset calibration, DMA/cache handling, then passes the voltage frame to the same API.
+`G1_FFT_API_Analyze()` remains deliberately independent of ADC capture. Once this AD9226 port has passed raw-waveform verification, its code-to-voltage calibration output can be passed to that API without changing the FFT algorithm.

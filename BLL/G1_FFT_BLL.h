@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define G1_FFT_MAX_COMPONENTS 6U
-#define G1_FFT_MAX_SPECTRUM_BINS 2048U
+#define G1_FFT_MAX_SPECTRUM_BINS 4096U
 
 typedef struct
 {
@@ -37,6 +37,10 @@ typedef struct
     uint32_t component_count;
     float spectrum_peak_volts[G1_FFT_MAX_SPECTRUM_BINS];
     g1_fft_component_t components[G1_FFT_MAX_COMPONENTS];
+    float fitted_vpp_volts;
+    float fitted_ac_rms_volts;
+    float fitted_dc_volts;
+    bool fitted_waveform_valid;
     bool valid;
 } g1_fft_result_t;
 
@@ -44,5 +48,8 @@ bool G1_FFT_BLL_Analyze(const float *voltage_samples,
                         uint32_t sample_count,
                         const g1_fft_input_t *input,
                         g1_fft_result_t *result);
+bool G1_FFT_BLL_FitHarmonics(const float *voltage_samples,
+                             uint32_t sample_count,
+                             g1_fft_result_t *result);
 
 #endif

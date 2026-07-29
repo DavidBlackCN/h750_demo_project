@@ -1,12 +1,12 @@
 # 项目状态
 
-## 当前主任务：G题第1问 ADC1 峰峰值测量（2026-07-29）
+## 当前主任务：ADC1 采集、FFT 与谐波分量测量（2026-07-29）
 
-- `main.c` 当前只初始化 GPIO、DMA、ADC1 和 TIM1；不启动 DDS、串口屏、ADC2/ADC3、DAC、DCMI 或其他题目任务。
-- ADC1 使用 `PA1_C / ADC1_INP1` 单端直连通道、14 位标准模式、TIM1_TRGO 触发、normal halfword DMA。ADC 内核时钟改为 30 MHz，TIM1 以 1.875 MS/s 触发，4096 点帧的频率间隔为约 457.8 Hz。
-- `FML/G1_VPP_ADC_FML.*` 负责 ADC1 单帧 DMA、单端 offset/linearity 校准、TIM1 触发、D-Cache 和完成轮询；ADC2 不由该主任务初始化或采集。`BLL/G1_VPP_BLL.*` 对原始码进行八点插值后求峰峰值。
-- `FML/G1_FFT_FML.*`、`BLL/G1_FFT_BLL.*` 和 `API/G1_FFT_API.*` 为独立频谱链路：输入仅为已完成的浮点电压帧、点数和采样率，不依赖 ADC、DMA、缓存或引脚；后续 AD9226 将码值换算/校准为电压后可直接复用。`API/G1_VPP_API.*` 在 ADC1 帧完成后，以 VOFA+ FireWater 连续发送 4096 个 `wave:<mV>` 原始波形点和 2047 个 `spectrum:<mV>` 非直流半边频谱点；图形帧保持 FFT 正弦峰值幅值。谐波找峰范围为 10 kHz～205 kHz，给题目 200 kHz 上限预留 5 kHz 的 FFT bin 保护带，避免 200 kHz 分量的最近 bin 略高于上限而被丢弃。每个谐波峰先做三点对数抛物线频率插值，再用整数倍相关峰的幅值加权最小二乘细化共同基频；串口的 `f_Hz` 是单峰插值频率，`fit_Hz` 是谐波次数乘以细化基频。图形帧后串口仅打印基波和至多六个谐波相关峰参数，其中 `amp_mVpp` 为正弦峰值幅值的两倍，以便与信号源 Vpp 直接比较。尚未接入最终幅相联合拟合/Vpp 重构。
-- 结果通过 `G1_VPP_API_GetResult()` 读取。默认按 ADC 引脚输入换算（前端增益为 1）；接入实际偏置放大链后，必须用 `G1_VPP_API_SetCalibration()` 写入实际 ADC 参考、前端增益和校准比例。
+- `main.c` 只初始化 GPIO、DMA、ADC1、TIM1 和 USART1，随后调用 `G1_VPP_API_Init/Process()`；不启动 ADC2/3、AD9226/DCMI、DDS、DAC、USART3 串口屏或其他题目任务。
+- `PC4` 为当前任务的启动按键，内部上拉、按下接地为有效。上电不自动采集；按下并稳定 30 ms 后仅启动一次 ADC1 帧。采集、计算和串口输出期间按键被锁定；完成或出错后必须先稳定松开、再重新按下才可开始下一帧。该复用使 ADS8688 的 `RST_PD` 在当前主任务中不再输出，不能同时启动 ADS8688。
+- `API/G1_VPP_API.*` 每次有效按键触发采集一帧：`PA1_C / ADC1_INP1`，TIM1_TRGO 触发，DMA1 Stream0 normal DMA 采集 8192 个 14 位码。运行时由 TIM1 时钟计算并设为 3.2 MS/s；帧长 2.56 ms、FFT bin 间隔 390.625 Hz。此前 PLL2P=32 MHz 时实测频率出现约 2 倍比例错误，符合本板 ADC 路径的 `/2` 内核分频；现 PLL2P 提为 64 MHz，使 ADC 有效内核时钟约为 32 MHz。ADC1 使用 14 位、1.5 周期采样和 BOOST 配置。DMA 完成后停止 TIM1/ADC，再输出数据，避免串口影响采样。
+- USART1 使用 `PB6/PB7`、115200 8N1。上电完成 USART1 初始化后先输出 `ok`；采样和 FFT 完成后只输出频率细化后的 `fundamental_Hz`、`fit_vpp_mV`、`fit_vrms_mV` 与 `harmonic n=...` 最终测量摘要，不发送原始波形或半边频谱。FFT 谱峰搜索范围为 10～505 kHz，为题目第 2 项的 500 kHz 边界留出频点余量。基频搜索只接受题目允许的 1～4 次谐波关系，并用 0.5 mVpeak 的原始帧相关检测确认基波，避免噪声子谐波误判；随后对 DC 和已识别谐波作联合正弦最小二乘拟合，输出经拟合更新的谐波 Vpp/相位。ADC 输入标定当前为 3.3 V 基准、前端增益 1，尚需实物校准。
+- `API/AD9226_VOFA_API.*` 和 `HDL/AD9226.*` 保留但当前不启动；后续将 AD9226 校准为浮点电压帧后可复用 `FML/G1_FFT_FML.*`、`BLL/G1_FFT_BLL.*` 和 `API/G1_FFT_API.*`。
 - 本任务尚未编译、烧录或上板验收。
 
 - 保留的 ADS8688 demo 仅初始化 GPIO、DMA 和 USART1，并调用 `ADS8688_API_Init()`；主循环仅调用 `ADS8688_API_Process()`。ADS8688 使用手动通道轮询读取模块 `CH1`～`CH4`（内部通道 `0`～`3`），CH5～CH8 关断掩码为 `0xF0`；四路均为 `+-10.24 V` 量程。
@@ -116,7 +116,7 @@
 | DCMI_HSYNC_GATE | PB1 → PA4 | 必须外部短接 |
 | DCMI_VSYNC_GATE | PB2 → PB7 | 必须外部短接 |
 | ADS8688_CS | PB12 | ADS8688 片选，软件控制，低有效 |
-| ADS8688_RST_PD | PC4 | ADS8688 复位/低功耗控制，demo 保持高电平 |
+| PC4 | G1 ADC1 启动按键 | 当前为上拉输入、按下接地有效；切换到 ADS8688 demo 前须恢复为 `RST_PD` 高电平输出 |
 | ADS8688_SCK | PB13 | GPIO 软件 SPI 时钟 |
 | ADS8688_SDO | PB14 | ADS8688 数据输出，GPIO 输入 |
 | ADS8688_SDI | PB15 | ADS8688 命令输入，GPIO 输出 |
@@ -268,23 +268,23 @@
   the 1 Hz fine scan even when high-rate coarse FFT interpolation lands slightly
   above the 10 kHz boundary. This fixes the former 10 kHz lower search boundary,
   which could classify a 10 Hz signal as an arbitrary high-frequency noise peak.
-## G1 task update: one-shot UART Vpp result (2026-07-29)
+## Historical G1 task update: one-shot UART Vpp result (2026-07-29)
 
 - `main.c` initializes GPIO, DMA, ADC1, TIM1, and USART1 only.
 - ADC1 collects one 4096-sample frame on `PA1_C / ADC1_INP1`; after analysis it keeps ADC1/TIM1/DMA stopped and USART1 PB6 (921600 8N1) sends `vpp_mV=<value>\r\n`.
 - No frequency or spectrum result is produced. This path has not been built, flashed, or hardware-validated.
 
-## G1 task update: raw waveform and AC RMS result (2026-07-29)
+## Historical G1 task update: raw waveform and AC RMS result (2026-07-29)
 
 - With ADC1/TIM1/DMA already stopped, USART1 sends `raw begin`, then 4096 lines of calibrated input-side voltage `raw_mV:<value>`, then `raw end`.
 - The final two lines are `vpp_mV=<value>` and `vrms_mV=<value>`. `vrms_mV` is the AC RMS after subtracting the frame mean, not the RMS including the analog bias.
 
-## G1 task update: ADC2 one-shot path (2026-07-29)
+## Historical G1 task update: ADC2 one-shot path (2026-07-29)
 
-- The active one-shot path now uses ADC2 `PA7 / ADC2_INP7`, 14-bit standard mode, 30 MHz ADC kernel clock, TIM1_TRGO at 1.875 MS/s, and DMA1 Stream1 normal halfword DMA.
+- This historical one-shot path used ADC2 `PA7 / ADC2_INP7`, 14-bit standard mode, 30 MHz ADC kernel clock, TIM1_TRGO at 1.875 MS/s, and DMA1 Stream1 normal halfword DMA.
 - ADC2 completion/error callbacks immediately stop TIM1; the foreground stops ADC2/DMA, sends `raw_mV`, `vpp_mV`, and `vrms_mV`, then stays stopped. ADC1 modules are retained but not initialized by `main.c`.
 
-## G1 task update: sequential ADC1 then ADC2 (2026-07-29)
+## Historical G1 task update: sequential ADC1 then ADC2 (2026-07-29)
 
 - Historical note (superseded by the current G1 ADC1-only task above): a previous G1 debug version initialized ADC1 and ADC2 sequentially. It is no longer the active startup path.
 - Historical note (superseded): ADC1 and ADC2 previously shared TIM1_TRGO in sequential captures. The current G1 task uses ADC1 only.

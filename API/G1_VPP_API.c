@@ -18,38 +18,81 @@ static float s_fft_input[G1_VPP_ADC_FRAME_SAMPLES]
     __attribute__((section(".dma_buffer"), aligned(32)));
 static uint8_t s_error;
 static uint32_t s_error_code;
-static uint8_t s_done;
 
-#define G1_VPP_UART_WAVE_SAMPLES G1_VPP_ADC_FRAME_SAMPLES
-#define G1_VPP_HARMONIC_SEARCH_MAX_HZ 205000.0f
-
-static HAL_StatusTypeDef g1_vpp_send_raw_waveform(const uint16_t *samples,
-                                                   uint32_t sample_count)
+typedef enum
 {
-    char message[32];
-    int length;
+    G1_VPP_STATE_WAIT_RELEASE = 0,
+    G1_VPP_STATE_IDLE,
+    G1_VPP_STATE_CAPTURING,
+} g1_vpp_state_t;
 
-    uint32_t output_count = sample_count;
+#define G1_VPP_START_KEY_GPIO_PORT GPIOC
+#define G1_VPP_START_KEY_PIN       GPIO_PIN_4
+#define G1_VPP_START_KEY_DEBOUNCE_MS 30U
 
-    if (output_count > G1_VPP_UART_WAVE_SAMPLES)
+static g1_vpp_state_t s_state;
+static GPIO_PinState s_key_sample;
+static GPIO_PinState s_key_stable;
+static uint32_t s_key_change_tick;
+
+#define G1_VPP_ERROR_FFT_ANALYZE 0xF001U
+#define G1_VPP_ERROR_FIT         0xF002U
+
+static void g1_vpp_send_error(const char *stage, uint32_t code)
+{
+    char message[64];
+    const int length = snprintf(message, sizeof(message),
+                                "error stage=%s code=%lu\r\n", stage,
+                                (unsigned long)code);
+
+    if ((length > 0) && (length < (int)sizeof(message)))
     {
-        output_count = G1_VPP_UART_WAVE_SAMPLES;
+        (void)Usart_Send_Computer(&huart1, message);
+    }
+}
+
+#define G1_VPP_HARMONIC_SEARCH_MAX_HZ 505000.0f
+
+static bool g1_vpp_start_key_is_pressed(void)
+{
+    return (s_key_stable == GPIO_PIN_RESET);
+}
+
+static void g1_vpp_start_key_poll(void)
+{
+    const GPIO_PinState sample = HAL_GPIO_ReadPin(G1_VPP_START_KEY_GPIO_PORT,
+                                                   G1_VPP_START_KEY_PIN);
+    const uint32_t now = HAL_GetTick();
+
+    if (sample != s_key_sample)
+    {
+        s_key_sample = sample;
+        s_key_change_tick = now;
     }
 
-    for (uint32_t index = 0U; index < output_count; ++index)
+    if ((s_key_stable != s_key_sample) &&
+        ((uint32_t)(now - s_key_change_tick) >= G1_VPP_START_KEY_DEBOUNCE_MS))
     {
-        float input_millivolts = 1000.0f *
-            G1_VPP_BLL_CodeToInputVolts(samples[index], &s_calibration);
-        length = snprintf(message, sizeof(message), "wave:%.3f\r\n",
-                          (double)input_millivolts);
+        s_key_stable = s_key_sample;
+    }
+}
 
-        if ((length <= 0) || (length >= (int)sizeof(message)) ||
-            (Usart_Send_Computer(&huart1, message) != HAL_OK))
-        {
-            return HAL_ERROR;
-        }
+static HAL_StatusTypeDef g1_vpp_start_capture(void)
+{
+    s_result.valid = false;
+    s_error = 0U;
+    s_error_code = HAL_ADC_ERROR_NONE;
+    s_fft_result.valid = false;
+
+    if (G1_VPP_ADC_FML_Start() != HAL_OK)
+    {
+        s_error = 1U;
+        s_error_code = G1_VPP_ADC_FML_GetErrorCode();
+        g1_vpp_send_error("adc_start", s_error_code);
+        return HAL_ERROR;
     }
 
+    s_state = G1_VPP_STATE_CAPTURING;
     return HAL_OK;
 }
 
@@ -59,8 +102,8 @@ static HAL_StatusTypeDef g1_vpp_analyze_and_send_fft(const uint16_t *samples,
     const g1_fft_input_t fft_input = {
         .sample_rate_hz = G1_VPP_ADC_FML_GetSampleRateHz(),
         .search_min_frequency_hz = 10000.0f,
-        /* Keep two-plus FFT bins above the 200 kHz task edge so a peak near
-           200 kHz is not lost when its nearest bin lies slightly above it. */
+        /* Leave margin above the 500 kHz task edge so a peak close to the
+           boundary is not discarded when its nearest FFT bin lies above it. */
         .search_max_frequency_hz = G1_VPP_HARMONIC_SEARCH_MAX_HZ,
         .min_peak_amplitude_volts = 0.001f,
     };
@@ -81,8 +124,18 @@ static HAL_StatusTypeDef g1_vpp_analyze_and_send_fft(const uint16_t *samples,
 
     if (!G1_FFT_API_Analyze(s_fft_input, sample_count, &fft_input, &s_fft_result))
     {
+        s_error_code = G1_VPP_ERROR_FFT_ANALYZE;
         return HAL_ERROR;
     }
+    if (!G1_FFT_BLL_FitHarmonics(s_fft_input, sample_count, &s_fft_result))
+    {
+        s_error_code = G1_VPP_ERROR_FIT;
+        return HAL_ERROR;
+    }
+
+    s_result.input_vpp_volts = s_fft_result.fitted_vpp_volts;
+    s_result.input_rms_volts = s_fft_result.fitted_ac_rms_volts;
+    s_result.input_mean_volts = s_fft_result.fitted_dc_volts;
 
     for (uint32_t index = 0U; index < s_fft_result.component_count; ++index)
     {
@@ -92,22 +145,12 @@ static HAL_StatusTypeDef g1_vpp_analyze_and_send_fft(const uint16_t *samples,
         }
     }
 
-    for (uint32_t index = 0U; index < s_fft_result.spectrum_bin_count; ++index)
-    {
-        length = snprintf(message, sizeof(message),
-                          "spectrum:%.3f\r\n",
-                          (double)(s_fft_result.spectrum_peak_volts[index] * 1000.0f));
-        if ((length <= 0) || (length >= (int)sizeof(message)) ||
-            (Usart_Send_Computer(&huart1, message) != HAL_OK))
-        {
-            return HAL_ERROR;
-        }
-    }
-
     length = snprintf(message, sizeof(message),
-                      "harmonics begin count=%lu\r\nfundamental_Hz=%.3f\r\n",
+                      "harmonics begin count=%lu\r\nfundamental_Hz=%.3f\r\nfit_vpp_mV=%.3f\r\nfit_vrms_mV=%.3f\r\n",
                       (unsigned long)harmonic_count,
-                      (double)s_fft_result.fundamental_hz);
+                      (double)s_fft_result.fundamental_hz,
+                      (double)(s_fft_result.fitted_vpp_volts * 1000.0f),
+                      (double)(s_fft_result.fitted_ac_rms_volts * 1000.0f));
     if ((length <= 0) || (length >= (int)sizeof(message)) ||
         (Usart_Send_Computer(&huart1, message) != HAL_OK))
     {
@@ -147,21 +190,53 @@ static HAL_StatusTypeDef g1_vpp_analyze_and_send_fft(const uint16_t *samples,
 
 HAL_StatusTypeDef G1_VPP_API_Init(void)
 {
+    const GPIO_PinState initial_key = HAL_GPIO_ReadPin(G1_VPP_START_KEY_GPIO_PORT,
+                                                        G1_VPP_START_KEY_PIN);
+
     s_result.valid = false;
     s_error = 0U;
     s_error_code = HAL_ADC_ERROR_NONE;
-    s_done = 0U;
     s_fft_result.valid = false;
+    s_state = G1_VPP_STATE_WAIT_RELEASE;
+    s_key_sample = initial_key;
+    s_key_stable = initial_key;
+    s_key_change_tick = HAL_GetTick();
 
-    return G1_VPP_ADC_FML_Start();
+    if (Usart_Send_Computer(&huart1, "ok\r\n") != HAL_OK)
+    {
+        s_error = 1U;
+        s_error_code = HAL_ERROR;
+        return HAL_ERROR;
+    }
+
+    return HAL_OK;
 }
 
 void G1_VPP_API_Process(void)
 {
     const uint16_t *samples;
     uint32_t sample_count;
-    if (s_done != 0U)
+    g1_vpp_start_key_poll();
+
+    if (s_state == G1_VPP_STATE_WAIT_RELEASE)
     {
+        if (!g1_vpp_start_key_is_pressed())
+        {
+            s_state = G1_VPP_STATE_IDLE;
+        }
+        return;
+    }
+
+    if (s_state == G1_VPP_STATE_IDLE)
+    {
+        if (g1_vpp_start_key_is_pressed())
+        {
+            if (g1_vpp_start_capture() != HAL_OK)
+            {
+                /* Do not retry a failed start while the key remains held. */
+                s_state = G1_VPP_STATE_WAIT_RELEASE;
+            }
+        }
         return;
     }
 
@@ -170,6 +245,8 @@ void G1_VPP_API_Process(void)
     {
         s_error = 1U;
         s_error_code = G1_VPP_ADC_FML_GetErrorCode();
+        g1_vpp_send_error("adc_capture", s_error_code);
+        s_state = G1_VPP_STATE_WAIT_RELEASE;
         return;
     }
 
@@ -182,25 +259,23 @@ void G1_VPP_API_Process(void)
     {
         s_error = 1U;
         s_error_code = HAL_ERROR;
-        return;
-    }
-
-    if (g1_vpp_send_raw_waveform(samples, sample_count) != HAL_OK)
-    {
-        s_error = 1U;
-        s_error_code = HAL_ERROR;
+        g1_vpp_send_error("waveform", s_error_code);
+        s_state = G1_VPP_STATE_WAIT_RELEASE;
         return;
     }
 
     if (g1_vpp_analyze_and_send_fft(samples, sample_count) != HAL_OK)
     {
         s_error = 1U;
-        s_error_code = HAL_ERROR;
+        g1_vpp_send_error((s_error_code == G1_VPP_ERROR_FIT) ? "fit" :
+                          "fft", s_error_code);
+        s_state = G1_VPP_STATE_WAIT_RELEASE;
         return;
     }
 
-    /* The ADC1 one-shot report is complete; keep ADC/TIM stopped. */
-    s_done = 1U;
+    /* Keep ADC/TIM stopped.  A new capture requires a fresh key release and
+       press, so a long press or any press during capture cannot retrigger. */
+    s_state = G1_VPP_STATE_WAIT_RELEASE;
 }
 
 void G1_VPP_API_SetCalibration(const g1_vpp_calibration_t *calibration)

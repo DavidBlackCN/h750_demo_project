@@ -72,9 +72,6 @@ void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOH, SDA_Pin|SCK_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(ADS8688_RST_PD_GPIO_Port, ADS8688_RST_PD_Pin, GPIO_PIN_SET);
-
-  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(ADS8688_CS_GPIO_Port, ADS8688_CS_Pin, GPIO_PIN_SET);
 
   /*Configure AD9959 software SPI and control output levels */
@@ -119,10 +116,11 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOH, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : ADS8688_RST_PD_Pin */
+  /* PC4 is the active-low start key of the ADC1 G1 task.  ADS8688 is not
+     started by this task, so its RST_PD output is intentionally not driven. */
   GPIO_InitStruct.Pin = ADS8688_RST_PD_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(ADS8688_RST_PD_GPIO_Port, &GPIO_InitStruct);
 

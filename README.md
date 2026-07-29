@@ -1,6 +1,6 @@
 # STM32H750 电赛信号题模板项目
 
-当前主任务为 AD9833 + AD9910 双正弦输出与淘晶驰串口屏并行 demo：AD9833 输出 1 kHz 正弦，AD9910 输出 100 kHz、300 mVpp 直接正弦；USART3 持续运行串口屏页面状态机。AD9959、TIM2 测频、ADC、DAC 与其他 demo 均保留但当前不启动。
+当前主任务为 ADC1 采集、FFT 与谐波分量测量：按下 `PC4`（内部上拉、按下接地）启动一帧 ADC1 采集，TIM1_TRGO 触发；采集中按键锁定，松开再按才可重测。FFT 在 10～505 kHz 搜索谱峰，随后 USART1 输出基波、拟合 Vpp/RMS 与谐波参数摘要。AD9226/DCMI、USART3 串口屏、DDS、DAC 和其他 demo 均保留但当前不启动。
 
 这是一个面向电子设计竞赛信号题的 STM32H750 模板工程，目标是把常用的信号产生、采集、频谱分析和串口调试能力提前搭好，后续按题目要求快速组合业务逻辑。
 
@@ -96,8 +96,8 @@ and captures one final frame. The final result reports measured frequency plus
 `wave=sine|triangle|square|unknown` and the `h3`/`h5` harmonic ratios. TIM2
 frequency measurement initialization and processing calls remain in `main.c` as
 comments and are not active.
-## Active task: G1 one-shot Vpp measurement
+## Historical task: AD9226 5 MS/s VOFA+ capture test
 
-At boot, ADC1 (`PA1_C / ADC1_INP1`) acquires one 4096-sample frame through TIM1/DMA at 1.875 MS/s. ADC2 is not initialized by this task. USART1 PB6 (921600 8N1) sends the raw calibrated voltage values, Vpp/RMS, and an FFT summary. The FFT API accepts only a completed `float` voltage frame, point count, and sample-rate descriptor; it has no ADC, DMA, cache, or pin dependency, so an AD9226 capture path can reuse it after code-to-voltage conversion.
+At boot, the AD9226 test uses the reference DCMI wiring unchanged: TIM1_CH1 on `PA8` drives the ADC clock and is physically looped to `PA6 / DCMI_PIXCLK`; `PB1 -> PA4 / HSYNC` and `PB2 -> PB7 / VSYNC` provide the software frame gate. It captures one 8192-sample 12-bit frame at 5 MS/s through DCMI/DMA2, then stops acquisition.
 
-The one-shot report sends the 4096 calibrated waveform samples to VOFA+ as FireWater `wave:<mV>` frames, followed by all 2047 non-DC half-spectrum bins as `spectrum:<mV>` frames. Only after those graph frames does USART1 send the text `harmonics` summary (fundamental frequency plus the detected harmonic parameters).
+USART3 `PB10/PB11` (board P10/P11) at 115200 8N1 sends the completed raw frame to VOFA+ as FireWater `ad9226_raw_mV:<value>` frames. Voltage conversion uses the reference board's 10 V span and zero-code calibration only for waveform observation; it must be recalibrated before any amplitude claim. ADC1/G1 FFT and the older AD9226 THD API remain in the source tree but are not started by `main.c`.

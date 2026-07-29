@@ -20,6 +20,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "adc.h"
 
+#include "stm32h7xx_ll_adc.h"
+
 /* USER CODE BEGIN 0 */
 
 /* USER CODE END 0 */
@@ -50,7 +52,7 @@ void MX_ADC1_Init(void)
   */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  /* G1 task 1: PA1_C direct channel, 14-bit standard mode. */
+  /* G1 task: PA1_C direct channel, 14-bit standard mode. */
   hadc1.Init.Resolution = ADC_RESOLUTION_14B;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
@@ -69,6 +71,7 @@ void MX_ADC1_Init(void)
   {
     Error_Handler();
   }
+  LL_ADC_SetBoostMode(ADC1, LL_ADC_BOOST_MODE_50MHZ);
 
   /** Configure the ADC multi-mode
   */
@@ -82,7 +85,7 @@ void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_8CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -192,8 +195,11 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
   */
     PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_ADC;
     PeriphClkInitStruct.PLL2.PLL2M = 4;
-    PeriphClkInitStruct.PLL2.PLL2N = 10;
-    PeriphClkInitStruct.PLL2.PLL2P = 2;
+    /* HSI=64 MHz: PLL2P = (64 / 4) * 16 / 4 = 64 MHz.
+       This H750 board's ADC path divides the kernel clock by two, so ADC1
+       receives about 32 MHz and can sustain the 3.2 MS/s TIM1 trigger. */
+    PeriphClkInitStruct.PLL2.PLL2N = 16;
+    PeriphClkInitStruct.PLL2.PLL2P = 4;
     PeriphClkInitStruct.PLL2.PLL2Q = 2;
     PeriphClkInitStruct.PLL2.PLL2R = 2;
     PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_3;

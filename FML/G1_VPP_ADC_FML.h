@@ -5,8 +5,8 @@
 
 #include <stdbool.h>
 
-#define G1_VPP_ADC_FRAME_SAMPLES       4096U
-#define G1_VPP_ADC_SAMPLE_RATE_HZ      1875000.0f
+#define G1_VPP_ADC_FRAME_SAMPLES       8192U
+#define G1_VPP_ADC_SAMPLE_RATE_HZ      3200000.0f
 
 HAL_StatusTypeDef G1_VPP_ADC_FML_Start(void);
 void G1_VPP_ADC_FML_Poll(void);
