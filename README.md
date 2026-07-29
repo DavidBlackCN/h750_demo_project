@@ -1,6 +1,6 @@
 # STM32H750 电赛信号题模板项目
 
-当前主任务为 ADC1 采集、FFT 与谐波分量测量：按下 `PC4`（内部上拉、按下接地）启动一帧 ADC1 采集，TIM1_TRGO 触发；采集中按键锁定，松开再按才可重测。FFT 在 10～505 kHz 搜索谱峰，随后 USART1 输出基波、拟合 Vpp/RMS 与谐波参数摘要。AD9226/DCMI、USART3 串口屏、DDS、DAC 和其他 demo 均保留但当前不启动。
+当前主任务为 ADC1 采集、FFT 与谐波分量测量：按下 `PC4`（内部上拉、按下接地）启动一帧 ADC1 采集，TIM1_TRGO 触发；采集中按键锁定，松开再按才可重测。码值转换后先经 63 阶零相位 FIR 低通抑制 ≥1 MHz 的 `uJ`，再在 10～505 kHz 搜索谱峰；USART1 输出基波、拟合 Vpp/RMS 与谐波参数摘要。AD9226/DCMI、USART3 串口屏、DDS、DAC 和其他 demo 均保留但当前不启动。
 
 这是一个面向电子设计竞赛信号题的 STM32H750 模板工程，目标是把常用的信号产生、采集、频谱分析和串口调试能力提前搭好，后续按题目要求快速组合业务逻辑。
 
@@ -37,6 +37,7 @@
 - `cmake/`、`CMakeLists.txt`：CMake/Ninja 构建配置。
 - `Tools/`：统一的 PowerShell 编译/烧录入口；本机路径位于被 Git 忽略的 `Tools/config/local.ps1`，示例见 `local.ps1.example`。
 - [ADS8688_PORTING.md](ADS8688_PORTING.md)：ADS8688 软件 SPI、CH1~CH4 手动通道轮询、FireWater 和 USART DMA 的可移植说明。
+- [串口屏状态机安全守则.md](串口屏状态机安全守则.md)：通用嵌入式显示通信的非阻塞发送、背压、超时恢复与验收守则。
 
 ## 默认启动流程
 

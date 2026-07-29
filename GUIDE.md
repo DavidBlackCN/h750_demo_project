@@ -8,7 +8,9 @@
 
 USB-TTL 接线为：适配器 RX 接 `PB6 / USART1_TX`，适配器 TX 可选接 `PB7 / USART1_RX`，并共地；串口设置为 115200、8N1。上电完成 USART1 初始化后先发送一行 `ok`；每次按键采样与 FFT 完成后，串口按 `begin count=...`、`fa_j=...`、`Upp=...`、`Urms=...`、各 `n=... f_Hz=... fit_Hz=... amp_mVpp=... phase_deg=...` 以及 `end` 的顺序发送最终摘要；不再发送原始波形或频谱。`fa_j`、`f_Hz`、`fit_Hz` 均按整数 Hz 输出；`Upp`/`Urms` 单位为 mV，`phase_deg` 单位为度。
 
-若采样或计算失败，固件只额外发送一行 `error stage=<adc_start|adc_capture|waveform|fft|fit> code=<code>`，用于定位，不会在正常测量过程中输出调试数据。`fft` 与 `fit` 的错误码分别为 `61441` 和 `61442`。
+在 FFT 前，浮点电压帧经过 `BLL/G1_FIR_BLL.*` 的 63 阶零相位 FIR 低通：针对 3.2 MS/s 设计，保留 0～500 kHz，计算响应在 500 kHz 约 0.001 dB、1 MHz 约 −90.7 dB。它用于第 3 项抑制 `uJ`，并同样处理第 1、2 项帧；仍必须依靠模拟前端避免高于 1.6 MHz 的干扰先发生混叠或造成 ADC 削顶。
+
+若采样或计算失败，固件只额外发送一行 `error stage=<adc_start|adc_capture|waveform|fir|fft|fit> code=<code>`，用于定位，不会在正常测量过程中输出调试数据。`fft`、`fit` 和 `fir` 的错误码分别为 `61441`、`61442` 和 `61443`。
 
 当前 FFT 谱峰搜索范围为 10～505 kHz；505 kHz 是为第 2 项 500 kHz 边界预留的频点余量，不代表已经完成 500 kHz 幅频精度验收。谐波次数上限由搜索范围与最低基频动态推导，当前 10 kHz 基频可识别到 50 次谐波。码值换算按 3.3 V ADC 基准、前端增益 1；未以直流点和已知正弦幅度做实物标定前，谐波频率可用于调试，但幅值不能作为最终精度结论。
 

@@ -1,6 +1,7 @@
 #include "G1_VPP_API.h"
 
 #include "G1_VPP_ADC_FML.h"
+#include "G1_FIR_BLL.h"
 #include "USART_FML.h"
 
 #include "usart.h"
@@ -15,6 +16,8 @@ static g1_vpp_calibration_t s_calibration = {
 static g1_vpp_result_t s_result;
 static g1_fft_result_t s_fft_result;
 static float s_fft_input[G1_VPP_ADC_FRAME_SAMPLES]
+    __attribute__((section(".dma_buffer"), aligned(32)));
+static float s_fir_output[G1_VPP_ADC_FRAME_SAMPLES]
     __attribute__((section(".dma_buffer"), aligned(32)));
 static uint8_t s_error;
 static uint32_t s_error_code;
@@ -37,6 +40,7 @@ static uint32_t s_key_change_tick;
 
 #define G1_VPP_ERROR_FFT_ANALYZE 0xF001U
 #define G1_VPP_ERROR_FIT         0xF002U
+#define G1_VPP_ERROR_FIR         0xF003U
 
 static void g1_vpp_send_error(const char *stage, uint32_t code)
 {
@@ -123,12 +127,18 @@ static HAL_StatusTypeDef g1_vpp_analyze_and_send_fft(const uint16_t *samples,
                                                           &s_calibration);
     }
 
-    if (!G1_FFT_API_Analyze(s_fft_input, sample_count, &fft_input, &s_fft_result))
+    if (!G1_FIR_BLL_FilterFrame(s_fft_input, s_fir_output, sample_count))
+    {
+        s_error_code = G1_VPP_ERROR_FIR;
+        return HAL_ERROR;
+    }
+
+    if (!G1_FFT_API_Analyze(s_fir_output, sample_count, &fft_input, &s_fft_result))
     {
         s_error_code = G1_VPP_ERROR_FFT_ANALYZE;
         return HAL_ERROR;
     }
-    if (!G1_FFT_BLL_FitHarmonics(s_fft_input, sample_count, &s_fft_result))
+    if (!G1_FFT_BLL_FitHarmonics(s_fir_output, sample_count, &s_fft_result))
     {
         s_error_code = G1_VPP_ERROR_FIT;
         return HAL_ERROR;
@@ -269,7 +279,8 @@ void G1_VPP_API_Process(void)
     {
         s_error = 1U;
         g1_vpp_send_error((s_error_code == G1_VPP_ERROR_FIT) ? "fit" :
-                          "fft", s_error_code);
+                          ((s_error_code == G1_VPP_ERROR_FIR) ? "fir" : "fft"),
+                          s_error_code);
         s_state = G1_VPP_STATE_WAIT_RELEASE;
         return;
     }

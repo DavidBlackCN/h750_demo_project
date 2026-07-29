@@ -100,6 +100,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     BLL/FFT_BLL.c
     BLL/G1_VPP_BLL.c
     BLL/G1_FFT_BLL.c
+    BLL/G1_FIR_BLL.c
     BLL/PHASE_BLL.c
     BLL/USART_BLL.c
     HDL/AD9226.c
